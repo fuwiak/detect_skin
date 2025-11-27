@@ -419,6 +419,113 @@
             font-size: 0.9em;
             margin-bottom: 15px;
         }
+
+        /* Settings Panel */
+        .settings-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #00ffff;
+            color: #000;
+            border: 3px solid #000;
+            padding: 10px 15px;
+            font-size: 0.6em;
+            cursor: pointer;
+            z-index: 1000;
+            box-shadow: 4px 4px 0 #000;
+            font-family: 'Press Start 2P', cursive;
+        }
+
+        .settings-toggle:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0 #000;
+        }
+
+        .settings-panel {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 380px;
+            height: 100vh;
+            background: #1a1a2e;
+            border-left: 4px solid #00ffff;
+            padding: 20px;
+            overflow-y: auto;
+            z-index: 999;
+            transition: right 0.3s ease;
+            box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+        }
+
+        .settings-panel.open {
+            right: 0;
+        }
+
+        .settings-panel h3 {
+            color: #00ffff;
+            font-size: 0.8em;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 0 #000;
+            border-bottom: 2px solid #00ffff;
+            padding-bottom: 10px;
+        }
+
+        .setting-group {
+            margin-bottom: 20px;
+        }
+
+        .setting-label {
+            color: #00ffff;
+            font-size: 0.5em;
+            margin-bottom: 8px;
+            display: block;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        .setting-select, .setting-input {
+            width: 100%;
+            background: #0f0f1e;
+            border: 2px solid #00ffff;
+            color: #00ffff;
+            padding: 10px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.5em;
+            margin-bottom: 10px;
+        }
+
+        .setting-select:focus, .setting-input:focus {
+            outline: none;
+            box-shadow: 0 0 10px rgba(0,255,255,0.5);
+        }
+
+        .setting-range {
+            width: 100%;
+            margin: 10px 0;
+        }
+
+        .setting-value {
+            color: #ff00ff;
+            font-size: 0.5em;
+            text-align: center;
+            margin-top: 5px;
+        }
+
+        .report-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #0f0f1e;
+            border: 2px solid #ff00ff;
+            color: #00ffff;
+            font-size: 0.5em;
+            line-height: 1.8;
+            max-height: 300px;
+            overflow-y: auto;
+            text-shadow: 1px 1px 0 #000;
+            display: none;
+        }
+
+        .report-section.show {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -428,14 +535,62 @@
             <p>DETECT DISEASE TYPE</p>
         </div>
 
+        <button class="settings-toggle" onclick="toggleSettings()">⚙️ НАСТРОЙКИ</button>
+
+        <div class="settings-panel" id="settingsPanel">
+            <h3>НАСТРОЙКИ МОДЕЛИ</h3>
+            
+            <div class="setting-group">
+                <label class="setting-label">ПРОВАЙДЕР ДЕТЕКЦИИ</label>
+                <select class="setting-select" id="detectionProvider">
+                    <option value="openrouter">OpenRouter</option>
+                </select>
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">МОДЕЛЬ ВИЗИИ</label>
+                <select class="setting-select" id="visionModel">
+                    <!-- Опции загружаются динамически из /api/models/available -->
+                </select>
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">ПРОВАЙДЕР LLM</label>
+                <select class="setting-select" id="llmProvider">
+                    <option value="openrouter">OpenRouter</option>
+                </select>
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">ТЕКСТОВАЯ МОДЕЛЬ</label>
+                <select class="setting-select" id="textModel">
+                    <!-- Опции загружаются динамически из /api/models/available -->
+                </select>
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">ТЕМПЕРАТУРА: <span class="setting-value" id="tempValue">0</span></label>
+                <input type="range" class="setting-range" id="temperature" min="0" max="1" step="0.1" value="0" oninput="updateTempValue(this.value)">
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">MAX TOKENS: <span class="setting-value" id="tokensValue">300</span></label>
+                <input type="range" class="setting-range" id="maxTokens" min="100" max="2000" step="100" value="300" oninput="updateTokensValue(this.value)">
+            </div>
+
+            <button class="upload-btn" onclick="saveSettings()" style="width: 100%; margin-top: 20px;">
+                СОХРАНИТЬ
+            </button>
+        </div>
+
         <div class="content">
             <div class="upload-section" id="uploadSection">
-                <h2>UPLOAD PHOTO</h2>
-                <p class="info-text">DRAG & DROP OR CLICK BUTTON</p>
+                <h2>ЗАГРУЗИТЬ ФОТО</h2>
+                <p class="info-text">ПЕРЕТАЩИТЕ ИЛИ НАЖМИТЕ КНОПКУ</p>
                 <input type="file" id="fileInput" accept="image/*">
                 <div class="buttons-group">
                     <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
-                        SELECT FILE
+                        ВЫБРАТЬ ФАЙЛ
                     </button>
                 </div>
             </div>
@@ -443,25 +598,32 @@
             <div class="preview-section" id="previewSection" style="display: none;">
                 <img id="previewImage" class="preview-image" alt="Предпросмотр">
                 <div class="buttons-group">
-                    <button class="btn-reset" onclick="resetImage()">RESET</button>
+                    <button class="btn-reset" onclick="resetImage()">СБРОСИТЬ</button>
                     <button class="btn-analyze" id="analyzeBtn" onclick="analyzeSkin()">
-                        ANALYZE SKIN
+                        АНАЛИЗИРОВАТЬ
                     </button>
                 </div>
             </div>
 
             <div class="loading" id="loading">
                 <div class="spinner"></div>
-                <p style="color: #00ffff; text-shadow: 2px 2px 0 #000; font-size: 0.6em;">ANALYZING...</p>
+                <p style="color: #00ffff; text-shadow: 2px 2px 0 #000; font-size: 0.6em;">АНАЛИЗИРУЮ...</p>
             </div>
 
             <div class="error-message" id="errorMessage"></div>
 
             <div class="results-section" id="resultsSection">
                 <h2 style="text-align: center; margin-bottom: 20px;">
-                    ANALYSIS RESULTS
+                    РЕЗУЛЬТАТЫ АНАЛИЗА
                 </h2>
+                <div id="providerInfo" style="text-align: center; margin-bottom: 20px; padding: 10px; background: #0f0f1e; border: 2px solid #00ffff; font-size: 0.5em; color: #00ffff;">
+                    <div id="providerText"></div>
+                </div>
                 <div class="results-grid" id="resultsGrid"></div>
+                <div class="report-section" id="reportSection">
+                    <h3 style="color: #ff00ff; margin-bottom: 10px;">ТЕКСТОВЫЙ ОТЧЁТ</h3>
+                    <div id="reportText"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -534,61 +696,292 @@
 
         function showError(message) {
             const errorDiv = document.getElementById('errorMessage');
-            errorDiv.textContent = 'ERROR: ' + message;
+            errorDiv.textContent = 'ОШИБКА: ' + message;
             errorDiv.classList.add('show');
             setTimeout(() => {
                 errorDiv.classList.remove('show');
             }, 5000);
         }
 
+        // Настройки по умолчанию
+            let currentConfig = {
+            detection_provider: 'openrouter',
+            llm_provider: 'openrouter',
+            vision_model: 'google/gemini-2.0-flash-001',
+            text_model: 'anthropic/claude-3.5-sonnet',
+            temperature: 0,
+            max_tokens: 300
+        };
+
+        function toggleSettings() {
+            const panel = document.getElementById('settingsPanel');
+            panel.classList.toggle('open');
+        }
+
+        function updateTempValue(value) {
+            document.getElementById('tempValue').textContent = value;
+            currentConfig.temperature = parseFloat(value);
+        }
+
+        function updateTokensValue(value) {
+            document.getElementById('tokensValue').textContent = value;
+            currentConfig.max_tokens = parseInt(value);
+        }
+
+        // Загрузка доступных моделей с backend
+        let availableModels = {
+            openrouter: { vision: [], text: [] }
+        };
+
+        async function loadAvailableModels() {
+            try {
+                const response = await fetch('/api/models/available');
+                const data = await response.json();
+                if (data.success) {
+                    availableModels = data.models;
+                    updateModelOptions();
+                    console.log('Модели загружены:', availableModels);
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки моделей:', error);
+            }
+        }
+
+        function updateModelOptions() {
+            // Обновляем список моделей для vision
+            const visionModelSelect = document.getElementById('visionModel');
+            const currentVisionValue = visionModelSelect.value || 'google/gemini-2.0-flash-001';
+            visionModelSelect.innerHTML = '';
+            
+            const detectionProvider = document.getElementById('detectionProvider').value;
+            const models = availableModels[detectionProvider]?.vision || [];
+            
+            let visionModelSet = false;
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.value;
+                option.textContent = model.label;
+                if (model.value === currentVisionValue) {
+                    option.selected = true;
+                    visionModelSet = true;
+                }
+                visionModelSelect.appendChild(option);
+            });
+            
+            // Если текущая модель не найдена, устанавливаем модель по умолчанию
+            if (!visionModelSet && models.length > 0) {
+                const defaultModel = 'google/gemini-2.0-flash-001';
+                const defaultOption = visionModelSelect.querySelector(`option[value="${defaultModel}"]`);
+                if (defaultOption) {
+                    defaultOption.selected = true;
+                    currentConfig.vision_model = defaultModel;
+                } else if (models.length > 0) {
+                    visionModelSelect.options[0].selected = true;
+                    currentConfig.vision_model = visionModelSelect.options[0].value;
+                }
+            }
+
+            // Обновляем список моделей для text
+            const textModelSelect = document.getElementById('textModel');
+            const currentTextValue = textModelSelect.value || 'anthropic/claude-3.5-sonnet';
+            textModelSelect.innerHTML = '';
+            
+            const llmProvider = document.getElementById('llmProvider').value;
+            const textModels = availableModels[llmProvider]?.text || [];
+            
+            let textModelSet = false;
+            textModels.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.value;
+                option.textContent = model.label;
+                if (model.value === currentTextValue) {
+                    option.selected = true;
+                    textModelSet = true;
+                }
+                textModelSelect.appendChild(option);
+            });
+            
+            // Если текущая модель не найдена, устанавливаем модель по умолчанию
+            if (!textModelSet && textModels.length > 0) {
+                const defaultModel = 'anthropic/claude-3.5-sonnet';
+                const defaultOption = textModelSelect.querySelector(`option[value="${defaultModel}"]`);
+                if (defaultOption) {
+                    defaultOption.selected = true;
+                    currentConfig.text_model = defaultModel;
+                } else if (textModels.length > 0) {
+                    textModelSelect.options[0].selected = true;
+                    currentConfig.text_model = textModelSelect.options[0].value;
+                }
+            }
+        }
+
+        // Обновляем модели при изменении провайдера
+        document.getElementById('detectionProvider').addEventListener('change', updateModelOptions);
+        document.getElementById('llmProvider').addEventListener('change', updateModelOptions);
+
+        function saveSettings() {
+            currentConfig.detection_provider = document.getElementById('detectionProvider').value;
+            currentConfig.llm_provider = document.getElementById('llmProvider').value;
+            currentConfig.vision_model = document.getElementById('visionModel').value;
+            currentConfig.text_model = document.getElementById('textModel').value;
+            
+            // Сохраняем в localStorage
+            localStorage.setItem('skinAnalyzerConfig', JSON.stringify(currentConfig));
+            
+            alert('НАСТРОЙКИ СОХРАНЕНЫ');
+        }
+
+        async function loadSettings() {
+            const saved = localStorage.getItem('skinAnalyzerConfig');
+            if (saved) {
+                currentConfig = JSON.parse(saved);
+            }
+            
+            // Применяем настройки к UI
+            document.getElementById('detectionProvider').value = currentConfig.detection_provider;
+            document.getElementById('llmProvider').value = currentConfig.llm_provider;
+            document.getElementById('temperature').value = currentConfig.temperature || 0;
+            document.getElementById('maxTokens').value = currentConfig.max_tokens || 300;
+            updateTempValue(currentConfig.temperature || 0);
+            updateTokensValue(currentConfig.max_tokens || 300);
+            
+            // Обновляем модели после загрузки настроек
+            // Ждём загрузки моделей, если они ещё не загружены
+            if (availableModels.openrouter.vision.length === 0) {
+                await loadAvailableModels();
+            }
+            updateModelOptions();
+            
+            // Устанавливаем сохранённые значения или значения по умолчанию после обновления опций
+            const visionSelect = document.getElementById('visionModel');
+            const textSelect = document.getElementById('textModel');
+            
+            if (currentConfig.vision_model && visionSelect.querySelector(`option[value="${currentConfig.vision_model}"]`)) {
+                visionSelect.value = currentConfig.vision_model;
+            } else if (visionSelect.options.length > 0) {
+                // Используем модель по умолчанию
+                const defaultVision = 'google/gemini-2.0-flash-001';
+                if (visionSelect.querySelector(`option[value="${defaultVision}"]`)) {
+                    visionSelect.value = defaultVision;
+                    currentConfig.vision_model = defaultVision;
+                } else if (visionSelect.options.length > 0) {
+                    visionSelect.options[0].selected = true;
+                    currentConfig.vision_model = visionSelect.options[0].value;
+                }
+            }
+            
+            if (currentConfig.text_model && textSelect.querySelector(`option[value="${currentConfig.text_model}"]`)) {
+                textSelect.value = currentConfig.text_model;
+            } else if (textSelect.options.length > 0) {
+                // Используем модель по умолчанию
+                const defaultText = 'anthropic/claude-3.5-sonnet';
+                if (textSelect.querySelector(`option[value="${defaultText}"]`)) {
+                    textSelect.value = defaultText;
+                    currentConfig.text_model = defaultText;
+                } else if (textSelect.options.length > 0) {
+                    textSelect.options[0].selected = true;
+                    currentConfig.text_model = textSelect.options[0].value;
+                }
+            }
+        }
+
         function analyzeSkin() {
             if (!currentImage) {
-                showError('PLEASE UPLOAD IMAGE');
+                showError('ЗАГРУЗИТЕ ИЗОБРАЖЕНИЕ');
                 return;
             }
+
+            // Обновляем конфиг из UI перед отправкой
+            currentConfig.detection_provider = document.getElementById('detectionProvider').value;
+            currentConfig.llm_provider = document.getElementById('llmProvider').value;
+            currentConfig.vision_model = document.getElementById('visionModel').value;
+            currentConfig.text_model = document.getElementById('textModel').value;
+            currentConfig.temperature = parseFloat(document.getElementById('temperature').value);
+            currentConfig.max_tokens = parseInt(document.getElementById('maxTokens').value);
+
+            console.log('Отправка запроса с конфигом:', currentConfig);
 
             // Показываем загрузку
             document.getElementById('loading').classList.add('show');
             analyzeBtn.disabled = true;
             document.getElementById('resultsSection').classList.remove('show');
             document.getElementById('errorMessage').classList.remove('show');
+            document.getElementById('reportSection').classList.remove('show');
 
-            // Имитация анализа (здесь будет реальный API вызов)
-            setTimeout(() => {
-                // Пример результатов
-                const results = {
-                    acne_score: Math.random() * 100,
-                    pigmentation_score: Math.random() * 100,
-                    pores_size: Math.random() * 100,
-                    wrinkles_grade: Math.random() * 100,
-                    skin_tone: Math.random() * 100,
-                    texture_score: Math.random() * 100,
-                    moisture_level: Math.random() * 100,
-                    oiliness: Math.random() * 100
-                };
+            // Реальный API вызов
+            fetch('/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    image: currentImage,
+                    config: currentConfig
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || `HTTP ${response.status}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data.success) {
+                    let errorMsg = data.error || 'ОШИБКА АНАЛИЗА';
+                    if (data.details) {
+                        errorMsg += '\n\nДетали:';
+                        if (data.details.openrouter_available === false) {
+                            errorMsg += '\n- OPENROUTER_API_KEY не найден';
+                        }
+                    }
+                    showError(errorMsg);
+                    document.getElementById('loading').classList.remove('show');
+                    analyzeBtn.disabled = false;
+                    return;
+                }
 
-                displayResults(results);
+                if (data.data) {
+                    // Показываем информацию о провайдере
+                    const provider = data.provider || 'unknown';
+                    const model = data.model || 'unknown';
+                    
+                    let providerText = `✅ ПРОВАЙДЕР: ${provider.toUpperCase()}`;
+                    if (model && model !== 'unknown') {
+                        providerText += `\nМОДЕЛЬ: ${model}`;
+                    }
+                    
+                    const providerInfo = document.getElementById('providerInfo');
+                    providerInfo.style.borderColor = '#00ffff';
+                    providerInfo.style.color = '#00ffff';
+                    providerInfo.style.background = '#0f0f1e';
+                    providerInfo.style.boxShadow = '0 0 10px rgba(0,255,255,0.3)';
+                    providerInfo.style.whiteSpace = 'pre-line';
+                    
+                    document.getElementById('providerText').textContent = providerText;
+                    
+                    displayResults(data.data);
+                    
+                    // Показываем текстовый отчёт если есть
+                    if (data.report) {
+                        document.getElementById('reportText').textContent = data.report;
+                        document.getElementById('reportSection').classList.add('show');
+                    }
+                    
+                    console.log('Использован провайдер:', provider);
+                    console.log('Использована модель:', model);
+                    console.log('Результаты:', data.data);
+                } else {
+                    showError('НЕВЕРНЫЙ ФОРМАТ ОТВЕТА');
+                }
+                
                 document.getElementById('loading').classList.remove('show');
                 analyzeBtn.disabled = false;
-            }, 2000);
-
-            // Для реального API:
-            // fetch('/api/analyze', {
-            //     method: 'POST',
-            //     headers: { 'Content-Type': 'application/json' },
-            //     body: JSON.stringify({ image: currentImage })
-            // })
-            // .then(response => response.json())
-            // .then(data => {
-            //     displayResults(data);
-            //     document.getElementById('loading').classList.remove('show');
-            //     analyzeBtn.disabled = false;
-            // })
-            // .catch(error => {
-            //     showError('ANALYSIS ERROR: ' + error.message);
-            //     document.getElementById('loading').classList.remove('show');
-            //     analyzeBtn.disabled = false;
-            // });
+            })
+            .catch(error => {
+                showError('ОШИБКА АНАЛИЗА: ' + error.message);
+                document.getElementById('loading').classList.remove('show');
+                analyzeBtn.disabled = false;
+            });
         }
 
         function displayResults(results) {
@@ -596,14 +989,14 @@
             resultsGrid.innerHTML = '';
 
             const resultConfig = {
-                acne_score: { label: 'ACNE', unit: '%' },
-                pigmentation_score: { label: 'PIGMENTATION', unit: '%' },
-                pores_size: { label: 'PORES SIZE', unit: '%' },
-                wrinkles_grade: { label: 'WRINKLES', unit: '%' },
-                skin_tone: { label: 'SKIN TONE', unit: '%' },
-                texture_score: { label: 'TEXTURE', unit: '%' },
-                moisture_level: { label: 'MOISTURE', unit: '%' },
-                oiliness: { label: 'OILINESS', unit: '%' }
+                acne_score: { label: 'АКНЕ', unit: '%' },
+                pigmentation_score: { label: 'ПИГМЕНТАЦИЯ', unit: '%' },
+                pores_size: { label: 'РАЗМЕР ПОР', unit: '%' },
+                wrinkles_grade: { label: 'МОРЩИНЫ', unit: '%' },
+                skin_tone: { label: 'ТОН КОЖИ', unit: '%' },
+                texture_score: { label: 'ТЕКСТУРА', unit: '%' },
+                moisture_level: { label: 'УВЛАЖНЕННОСТЬ', unit: '%' },
+                oiliness: { label: 'ЖИРНОСТЬ', unit: '%' }
             };
 
             for (const [key, value] of Object.entries(results)) {
@@ -628,13 +1021,20 @@
 
         function getGrade(value) {
             if (value >= 70) {
-                return { class: 'high', text: 'HIGH' };
+                return { class: 'high', text: 'ВЫСОКИЙ' };
             } else if (value >= 40) {
-                return { class: 'medium', text: 'MEDIUM' };
+                return { class: 'medium', text: 'СРЕДНИЙ' };
             } else {
-                return { class: 'low', text: 'LOW' };
+                return { class: 'low', text: 'НИЗКИЙ' };
             }
         }
+
+        // Загружаем настройки при загрузке страницы
+        window.addEventListener('DOMContentLoaded', async function() {
+            // Сначала загружаем доступные модели, потом настройки
+            await loadAvailableModels();
+            await loadSettings();
+        });
     </script>
 </body>
 </html>

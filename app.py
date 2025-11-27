@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""
+Backend сервис для анализа состояния кожи
+"""
+import os
+import base64
+import json
+import requests
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+from dotenv import load_dotenv
+from typing import Dict, Optional, List
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Загружаем переменные окружения
+load_dotenv()
+
+app = Flask(__name__, static_folder='.', static_url_path='')
+CORS(app)
+
+# Конфигурация API
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+# Настройки моделей по умолчанию
+# Порядок попыток подключения к API для детекции
+# Топовые платные модели
+DETECTION_FALLBACKS = [
+    {"provider": "openrouter", "model": "openai/gpt-4o"},  # GPT-4o - лучшая для медицинского анализа
+    {"provider": "openrouter", "model": "anthropic/claude-3.5-sonnet"},  # Claude 3.5 Sonnet - баланс качества и стоимости
+    {"provider": "openrouter", "model": "google/gemini-1.5-pro"},  # Gemini 1.5 Pro - сильные возможности обработки изображений
+    # Бесплатные и бюджетные варианты
+    {"provider": "openrouter", "model": "google/gemini-2.0-flash-exp"},  # Gemini 2.0 Flash Experimental (бесплатная)
+    {"provider": "openrouter", "model": "qwen/qwen-2-vl-72b-instruct"},  # Qwen2-VL - высокая производительность
+    {"provider": "openrouter", "model": "mistralai/pixtral-large"},  # Pixtral Large - 124B параметров
+    {"provider": "openrouter", "model": "x-ai/grok-4.1-fast:free"},  # Grok 4.1 Fast (бесплатная)
+    {"provider": "openrouter", "model": "google/gemini-2.0-flash-001"}  # Google Gemini 2.0 Flash
+]
+
+# Настройки моделей по умолчанию
+DEFAULT_VISION_MODEL = "google/gemini-2.0-flash-001"  # Для детекции
+DEFAULT_TEXT_MODEL = "anthropic/claude-3.5-sonnet"  # Для генерации отчёта
+
+DEFAULT_CONFIG = {
+    "detection_provider": "openrouter",
+    "llm_provider": "openrouter",
+    "vision_model": DEFAULT_VISION_MODEL,
+    "text_model": DEFAULT_TEXT_MODEL,
+    "temperature": 0,  # Точность важнее креативности
+    "max_tokens": 300  # Краткие и лаконичные ответы
+}
+
+
+
+
+
+
+def analyze_image_with_openrouter(image_base64: str, model: str, temperature: float, max_tokens: int) -> Optional[Dict]:
+    """Анализ изображения через OpenRouter API"""
+    if not OPENROUTER_API_KEY:
+        logger.warning("OpenRouter API key not found")
+        return None
+    
+    try:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:5000",
+            "X-Title": "Skin Analyzer"
+        }
+        
+        prompt = """Ты специалист по заболеваниям и дефектам кожи. Проанализируй это изображение лица и определи следующие параметры состояния кожи:
+
+1. acne_score (0-100) - уровень акне
+2. pigmentation_score (0-100) - уровень пигментации
+3. pores_size (0-100) - размер пор
+4. wrinkles_grade (0-100) - уровень морщин
+5. skin_tone (0-100) - тон кожи
+6. texture_score (0-100) - текстура кожи
+7. moisture_level (0-100) - уровень увлажненности
+8. oiliness (0-100) - жирность кожи
+
+Верни результат в формате JSON с этими полями. Кратко и лаконично опиши проблемы, укажи в каких местах на лице они находятся и сколько их."""
+        
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_base64}"
+                            }
+                        }
+                    ]
+                }
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        
+        if response.status_code != 200:
+            error_text = response.text[:500]
+            logger.error(f"OpenRouter API error: HTTP {response.status_code}")
+            logger.error(f"Ответ сервера: {error_text}")
+            try:
+                error_data = response.json()
+                logger.error(f"Детали ошибки: {json.dumps(error_data, indent=2, ensure_ascii=False)}")
+            except:
+                pass
+            return None
+        
+        result = response.json()
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        
+        try:
+            json_start = content.find("{")
+            json_end = content.rfind("}") + 1
+            if json_start >= 0 and json_end > json_start:
+                skin_data = json.loads(content[json_start:json_end])
+            else:
+                skin_data = parse_skin_analysis_from_text(content)
+        except:
+            skin_data = parse_skin_analysis_from_text(content)
+        
+        return skin_data
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"OpenRouter API error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.error(f"HTTP {e.response.status_code}: {e.response.text[:500]}")
+        return None
+    except Exception as e:
+        logger.error(f"OpenRouter unexpected error: {e}")
+        return None
+
+
+
+
+def parse_skin_analysis_from_text(text: str) -> Dict:
+    """Парсинг анализа из текстового ответа"""
+    import re
+    result = {}
+    
+    patterns = {
+        "acne_score": r"acne[_\s]?score[:\s]+(\d+\.?\d*)",
+        "pigmentation_score": r"pigmentation[_\s]?score[:\s]+(\d+\.?\d*)",
+        "pores_size": r"pores[_\s]?size[:\s]+(\d+\.?\d*)",
+        "wrinkles_grade": r"wrinkles[_\s]?grade[:\s]+(\d+\.?\d*)",
+        "skin_tone": r"skin[_\s]?tone[:\s]+(\d+\.?\d*)",
+        "texture_score": r"texture[_\s]?score[:\s]+(\d+\.?\d*)",
+        "moisture_level": r"moisture[_\s]?level[:\s]+(\d+\.?\d*)",
+        "oiliness": r"oiliness[:\s]+(\d+\.?\d*)"
+    }
+    
+    text_lower = text.lower()
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text_lower)
+        if match:
+            try:
+                result[key] = float(match.group(1))
+            except:
+                result[key] = 0.0
+        else:
+            result[key] = 0.0
+    
+    return result
+
+
+def generate_report_with_llm(skin_data: Dict, provider: str, model: str, temperature: float) -> str:
+    """Генерация текстового отчёта с помощью LLM"""
+    report_prompt = f"""Ты специалист по заболеваниям и дефектам кожи. На основе следующих данных анализа кожи создай краткий и лаконичный текстовый отчёт на русском языке:
+
+{json.dumps(skin_data, ensure_ascii=False, indent=2)}
+
+Отчёт должен включать:
+1. Краткую оценку состояния кожи
+2. Описание проблем: Акне, Пигментация, Размер пор, Морщины, Тон кожи, Текстура, Увлажненность, Жирность
+3. Указание в каких местах на лице находятся проблемы и сколько их
+
+Отчёт должен быть кратким, лаконичным и профессиональным."""
+    
+    # Пробуем через OpenRouter
+    if OPENROUTER_API_KEY:
+        models_to_try = [model]  # Пробуем запрошенную модель
+        
+        for model_to_use in models_to_try:
+            try:
+                url = "https://openrouter.ai/api/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "http://localhost:5000",
+                    "X-Title": "Skin Analyzer"
+                }
+                
+                payload = {
+                    "model": model_to_use,
+                    "messages": [{"role": "user", "content": report_prompt}],
+                    "temperature": temperature,
+                    "max_tokens": 1000
+                }
+                
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                response.raise_for_status()
+                result = response.json()
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if content:
+                    logger.info(f"Отчёт сгенерирован через OpenRouter с моделью: {model_to_use}")
+                    return content
+            except Exception as e:
+                logger.debug(f"Модель {model_to_use} не сработала: {e}")
+                continue
+    
+    # Простой отчёт без LLM (если LLM недоступны)
+    logger.warning("Не удалось сгенерировать отчёт через LLM, используем простой формат")
+    return generate_fallback_report(skin_data)
+
+
+def generate_fallback_report(skin_data: Dict) -> str:
+    """Генерация простого отчёта без LLM"""
+    report = "ОТЧЁТ О СОСТОЯНИИ КОЖИ\n\n"
+    report += f"Акне: {skin_data.get('acne_score', 0):.1f}%\n"
+    report += f"Пигментация: {skin_data.get('pigmentation_score', 0):.1f}%\n"
+    report += f"Размер пор: {skin_data.get('pores_size', 0):.1f}%\n"
+    report += f"Морщины: {skin_data.get('wrinkles_grade', 0):.1f}%\n"
+    report += f"Тон кожи: {skin_data.get('skin_tone', 0):.1f}%\n"
+    report += f"Текстура: {skin_data.get('texture_score', 0):.1f}%\n"
+    report += f"Увлажненность: {skin_data.get('moisture_level', 0):.1f}%\n"
+    report += f"Жирность: {skin_data.get('oiliness', 0):.1f}%\n"
+    return report
+
+
+@app.route('/')
+def index():
+    """Главная страница"""
+    return send_from_directory('.', 'index.html')
+
+
+@app.route('/api/analyze', methods=['POST'])
+def analyze_skin():
+    """Эндпоинт для анализа кожи"""
+    try:
+        data = request.json
+        image_base64 = data.get('image', '')
+        
+        if not image_base64:
+            return jsonify({"error": "Изображение не предоставлено"}), 400
+        
+        # Убираем префикс data:image если есть
+        if ',' in image_base64:
+            image_base64 = image_base64.split(',')[1]
+        
+        # Получаем настройки из запроса или используем по умолчанию
+        config = data.get('config', DEFAULT_CONFIG)
+        detection_provider = config.get('detection_provider', 'openrouter')
+        llm_provider = config.get('llm_provider', 'openrouter')
+        vision_model = config.get('vision_model', DEFAULT_VISION_MODEL)
+        text_model = config.get('text_model', DEFAULT_TEXT_MODEL)
+        temperature = config.get('temperature', 0.7)
+        max_tokens = config.get('max_tokens', 1000)
+        
+        # Пробуем детекцию через доступные API
+        skin_data = None
+        used_provider = None
+        used_model = None
+        
+        # Пробуем через OpenRouter
+        if OPENROUTER_API_KEY:
+            openrouter_models_to_try = []
+            
+            # СНАЧАЛА пробуем выбранную пользователем модель
+            openrouter_models_to_try.append(vision_model)
+            logger.info(f"🎯 Приоритет: используем выбранную модель: {vision_model}")
+            
+            # Затем добавляем fallback модели из DETECTION_FALLBACKS (кроме уже добавленной)
+            for fallback in DETECTION_FALLBACKS:
+                if fallback["provider"] == "openrouter":
+                    model = fallback["model"]
+                    if model != vision_model:  # Не добавляем, если уже есть
+                        openrouter_models_to_try.append(model)
+            
+            # Пробуем каждую модель по порядку
+            for model in openrouter_models_to_try:
+                logger.info(f"Пробуем модель через OpenRouter: {model}")
+                try:
+                    skin_data = analyze_image_with_openrouter(image_base64, model, temperature, max_tokens)
+                    if skin_data:
+                        used_provider = "openrouter"
+                        used_model = model
+                        logger.info(f"✅ Успешно использована модель: {model}")
+                        break
+                    else:
+                        logger.warning(f"Модель {model} не вернула данные")
+                except Exception as e:
+                    logger.debug(f"Модель {model} вызвала исключение: {e}")
+                    continue
+        
+        # Если всё ещё не сработало, пробуем обычные модели OpenRouter
+        if not skin_data and OPENROUTER_API_KEY:
+            logger.info("Пробуем стандартные модели OpenRouter")
+            skin_data = analyze_image_with_openrouter(image_base64, vision_model, temperature, max_tokens)
+            if skin_data:
+                used_provider = "openrouter"
+                used_model = vision_model
+        
+        # Если все API недоступны, возвращаем ошибку
+        if not skin_data:
+            logger.error("="*80)
+            logger.error("❌ ОШИБКА: Все API недоступны!")
+            logger.error("   Проверьте:")
+            logger.error("   1. API ключи в .env файле")
+            logger.error("   2. Интернет-соединение")
+            logger.error("   3. Доступность API провайдеров")
+            logger.error("="*80)
+            return jsonify({
+                "success": False,
+                "error": "Все API недоступны. Проверьте API ключи в .env файле и интернет-соединение.",
+                "details": {
+                    "openrouter_available": bool(OPENROUTER_API_KEY)
+                }
+            }), 503
+        
+        # Логируем итоговый результат
+        logger.info("="*80)
+        logger.info(f"✅ Анализ завершён")
+        logger.info(f"   Провайдер: {used_provider}")
+        logger.info(f"   Модель: {used_model}")
+        logger.info("="*80)
+        
+        # Генерируем текстовый отчёт
+        report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature)
+        
+        return jsonify({
+            "success": True,
+            "data": skin_data,
+            "report": report,
+            "provider": used_provider,
+            "model": used_model,
+            "config": config
+        })
+        
+    except Exception as e:
+        logger.error(f"Analysis error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """Получить текущую конфигурацию"""
+    return jsonify(DEFAULT_CONFIG)
+
+
+@app.route('/api/config', methods=['POST'])
+def update_config():
+    """Обновить конфигурацию"""
+    try:
+        data = request.json
+        DEFAULT_CONFIG.update(data)
+        return jsonify({"success": True, "config": DEFAULT_CONFIG})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+
+@app.route('/api/models/available', methods=['GET'])
+def get_available_models():
+    """Получить список всех доступных моделей для каждого провайдера"""
+    try:
+        # Модели для OpenRouter (из DETECTION_FALLBACKS)
+        openrouter_models = []
+        for fallback in DETECTION_FALLBACKS:
+            if fallback["provider"] == "openrouter":
+                model = fallback["model"]
+                # Красивое название для отображения
+                label = model.replace("x-ai/", "").replace("google/", "").replace(":free", " (бесплатно)")
+                openrouter_models.append({
+                    "value": model,
+                    "label": label
+                })
+        
+        return jsonify({
+            "success": True,
+            "models": {
+                "openrouter": {
+                    "vision": openrouter_models,
+                    "text": openrouter_models
+                }
+            },
+            "detection_fallbacks": DETECTION_FALLBACKS
+        })
+    except Exception as e:
+        logger.error(f"Error getting available models: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+def find_free_port(start_port=5000, max_attempts=10):
+    """Находит свободный порт начиная с start_port"""
+    import socket
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('', port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(f"Не удалось найти свободный порт в диапазоне {start_port}-{start_port + max_attempts}")
+
+
+if __name__ == '__main__':
+    # В production (Railway) используем PORT из переменных окружения напрямую
+    # В development пробуем найти свободный порт
+    default_port = int(os.getenv('PORT', 5000))
+    is_production = os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('PRODUCTION')
+    
+    if is_production:
+        # В production используем порт напрямую
+        port = default_port
+        debug_mode = False
+    else:
+        # В development ищем свободный порт
+        port = find_free_port(default_port)
+        debug_mode = True
+        if port != default_port:
+            logger.info(f"Порт {default_port} занят, используем порт {port}")
+    
+    print("=" * 80)
+    print("🔬 Skin Analyzer Backend")
+    print("=" * 80)
+    print(f"📡 Сервер запущен на http://0.0.0.0:{port}")
+    if not is_production:
+        print(f"🌍 Откройте браузер и перейдите по адресу http://localhost:{port}")
+    print("=" * 80)
+    if not is_production:
+        print("Для остановки нажмите Ctrl+C")
+    print()
+    
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)
+
