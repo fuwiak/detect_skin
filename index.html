@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анализ кожи - Detect Skin</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background: #000;
+            background-image: 
+                repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,255,255,0.03) 2px, rgba(0,255,255,0.03) 4px),
+                repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(255,0,255,0.03) 2px, rgba(255,0,255,0.03) 4px);
+            min-height: 100vh;
+            padding: 20px;
+            color: #00ffff;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #1a1a2e;
+            border: 4px solid #00ffff;
+            border-radius: 0;
+            box-shadow: 
+                0 0 20px #00ffff,
+                inset 0 0 20px rgba(0,255,255,0.1);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,255,255,0.1) 2px,
+                rgba(0,255,255,0.1) 4px
+            );
+            pointer-events: none;
+            opacity: 0.3;
+        }
+
+        .header {
+            background: linear-gradient(180deg, #ff00ff 0%, #ff0080 50%, #8000ff 100%);
+            color: #fff;
+            padding: 30px;
+            text-align: center;
+            border-bottom: 4px solid #00ffff;
+            position: relative;
+            text-shadow: 
+                3px 3px 0 #000,
+                0 0 10px #00ffff,
+                0 0 20px #00ffff;
+            box-shadow: 0 4px 0 #000;
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            margin-bottom: 15px;
+            letter-spacing: 2px;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes glow {
+            from {
+                text-shadow: 
+                    3px 3px 0 #000,
+                    0 0 10px #00ffff,
+                    0 0 20px #00ffff;
+            }
+            to {
+                text-shadow: 
+                    3px 3px 0 #000,
+                    0 0 20px #00ffff,
+                    0 0 30px #00ffff,
+                    0 0 40px #00ffff;
+            }
+        }
+
+        .header p {
+            font-size: 0.7em;
+            color: #00ffff;
+            text-shadow: 2px 2px 0 #000;
+        }
+
+        .content {
+            padding: 30px;
+            background: #0f0f1e;
+        }
+
+        .upload-section {
+            background: #1a1a2e;
+            border: 4px dashed #00ffff;
+            border-radius: 0;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 30px;
+            transition: all 0.2s;
+            box-shadow: 
+                0 0 15px rgba(0,255,255,0.3),
+                inset 0 0 15px rgba(0,255,255,0.1);
+        }
+
+        .upload-section:hover {
+            border-color: #ff00ff;
+            box-shadow: 
+                0 0 25px rgba(255,0,255,0.5),
+                inset 0 0 25px rgba(255,0,255,0.2);
+            background: #1f1f3e;
+        }
+
+        .upload-section.dragover {
+            border-color: #ff00ff;
+            background: #2a1a3e;
+            box-shadow: 
+                0 0 30px rgba(255,0,255,0.7),
+                inset 0 0 30px rgba(255,0,255,0.3);
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .upload-btn, .btn-reset, .btn-analyze {
+            background: #00ffff;
+            color: #000;
+            border: 3px solid #000;
+            padding: 15px 30px;
+            font-size: 0.7em;
+            border-radius: 0;
+            cursor: pointer;
+            font-family: 'Press Start 2P', cursive;
+            text-transform: uppercase;
+            box-shadow: 
+                4px 4px 0 #000,
+                0 0 10px rgba(0,255,255,0.5);
+            transition: all 0.1s;
+            margin: 10px;
+            position: relative;
+            letter-spacing: 1px;
+        }
+
+        .upload-btn:hover, .btn-reset:hover, .btn-analyze:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 
+                2px 2px 0 #000,
+                0 0 20px rgba(0,255,255,0.8);
+        }
+
+        .upload-btn:active, .btn-reset:active, .btn-analyze:active {
+            transform: translate(4px, 4px);
+            box-shadow: 0 0 0 #000;
+        }
+
+        .btn-reset {
+            background: #ff0080;
+            color: #fff;
+            box-shadow: 
+                4px 4px 0 #000,
+                0 0 10px rgba(255,0,128,0.5);
+        }
+
+        .btn-reset:hover {
+            box-shadow: 
+                2px 2px 0 #000,
+                0 0 20px rgba(255,0,128,0.8);
+        }
+
+        .btn-analyze {
+            background: #00ff00;
+            color: #000;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 
+                4px 4px 0 #000,
+                0 0 10px rgba(0,255,0,0.5);
+        }
+
+        .btn-analyze:hover {
+            box-shadow: 
+                2px 2px 0 #000,
+                0 0 20px rgba(0,255,0,0.8);
+        }
+
+        .btn-analyze:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+            box-shadow: 2px 2px 0 #000;
+        }
+
+        .preview-section {
+            margin: 30px 0;
+            text-align: center;
+        }
+
+        .preview-image {
+            max-width: 100%;
+            max-height: 400px;
+            border: 4px solid #00ffff;
+            border-radius: 0;
+            box-shadow: 
+                0 0 20px rgba(0,255,255,0.6),
+                inset 0 0 20px rgba(0,255,255,0.2);
+            margin: 20px 0;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+
+        .buttons-group {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .results-section {
+            margin-top: 30px;
+            display: none;
+            border: 4px solid #ff00ff;
+            padding: 20px;
+            background: #1a1a2e;
+            box-shadow: 
+                0 0 20px rgba(255,0,255,0.5),
+                inset 0 0 20px rgba(255,0,255,0.1);
+        }
+
+        .results-section.show {
+            display: block;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .result-card {
+            background: #0f0f1e;
+            border: 3px solid #00ffff;
+            border-radius: 0;
+            padding: 15px;
+            text-align: center;
+            transition: all 0.2s;
+            box-shadow: 
+                4px 4px 0 #000,
+                0 0 10px rgba(0,255,255,0.3);
+            position: relative;
+        }
+
+        .result-card:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 
+                2px 2px 0 #000,
+                0 0 20px rgba(0,255,255,0.6);
+            border-color: #ff00ff;
+        }
+
+        .result-label {
+            font-size: 0.5em;
+            color: #00ffff;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            text-shadow: 2px 2px 0 #000;
+            line-height: 1.5;
+        }
+
+        .result-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #ff00ff;
+            margin-bottom: 8px;
+            text-shadow: 
+                2px 2px 0 #000,
+                0 0 10px rgba(255,0,255,0.8);
+        }
+
+        .result-grade {
+            font-size: 0.5em;
+            font-weight: bold;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        .result-grade.high {
+            color: #ff0080;
+            text-shadow: 
+                1px 1px 0 #000,
+                0 0 10px rgba(255,0,128,0.8);
+        }
+
+        .result-grade.medium {
+            color: #ffaa00;
+            text-shadow: 
+                1px 1px 0 #000,
+                0 0 10px rgba(255,170,0,0.8);
+        }
+
+        .result-grade.low {
+            color: #00ff00;
+            text-shadow: 
+                1px 1px 0 #000,
+                0 0 10px rgba(0,255,0,0.8);
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            margin: 0 auto 20px;
+            position: relative;
+        }
+
+        .spinner::before,
+        .spinner::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 4px solid transparent;
+            border-top-color: #00ffff;
+            border-right-color: #ff00ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .spinner::after {
+            border-top-color: #ff00ff;
+            border-right-color: #00ff00;
+            animation: spin 1.5s linear infinite reverse;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #1a0000;
+            border: 3px solid #ff0080;
+            border-radius: 0;
+            padding: 15px;
+            margin: 20px 0;
+            color: #ff0080;
+            display: none;
+            box-shadow: 
+                4px 4px 0 #000,
+                0 0 15px rgba(255,0,128,0.5);
+            text-shadow: 2px 2px 0 #000;
+            font-size: 0.6em;
+            line-height: 1.8;
+        }
+
+        .error-message.show {
+            display: block;
+            animation: shake 0.5s;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        .info-text {
+            color: #00ffff;
+            font-size: 0.5em;
+            margin-top: 10px;
+            text-shadow: 1px 1px 0 #000;
+            line-height: 1.8;
+        }
+
+        h2 {
+            color: #00ffff;
+            text-shadow: 
+                2px 2px 0 #000,
+                0 0 10px rgba(0,255,255,0.8);
+            font-size: 0.9em;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>SKIN ANALYZER</h1>
+            <p>DETECT DISEASE TYPE</p>
+        </div>
+
+        <div class="content">
+            <div class="upload-section" id="uploadSection">
+                <h2>UPLOAD PHOTO</h2>
+                <p class="info-text">DRAG & DROP OR CLICK BUTTON</p>
+                <input type="file" id="fileInput" accept="image/*">
+                <div class="buttons-group">
+                    <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                        SELECT FILE
+                    </button>
+                </div>
+            </div>
+
+            <div class="preview-section" id="previewSection" style="display: none;">
+                <img id="previewImage" class="preview-image" alt="Предпросмотр">
+                <div class="buttons-group">
+                    <button class="btn-reset" onclick="resetImage()">RESET</button>
+                    <button class="btn-analyze" id="analyzeBtn" onclick="analyzeSkin()">
+                        ANALYZE SKIN
+                    </button>
+                </div>
+            </div>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p style="color: #00ffff; text-shadow: 2px 2px 0 #000; font-size: 0.6em;">ANALYZING...</p>
+            </div>
+
+            <div class="error-message" id="errorMessage"></div>
+
+            <div class="results-section" id="resultsSection">
+                <h2 style="text-align: center; margin-bottom: 20px;">
+                    ANALYSIS RESULTS
+                </h2>
+                <div class="results-grid" id="resultsGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentImage = null;
+
+        // Обработка загрузки файла
+        const fileInput = document.getElementById('fileInput');
+        const uploadSection = document.getElementById('uploadSection');
+        const previewSection = document.getElementById('previewSection');
+        const previewImage = document.getElementById('previewImage');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+
+        fileInput.addEventListener('change', handleFileSelect);
+
+        // Drag and Drop
+        uploadSection.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadSection.classList.add('dragover');
+        });
+
+        uploadSection.addEventListener('dragleave', () => {
+            uploadSection.classList.remove('dragover');
+        });
+
+        uploadSection.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadSection.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        }
+
+        function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                showError('Пожалуйста, выберите изображение');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                currentImage = e.target.result;
+                previewImage.src = currentImage;
+                uploadSection.style.display = 'none';
+                previewSection.style.display = 'block';
+                document.getElementById('resultsSection').classList.remove('show');
+                document.getElementById('errorMessage').classList.remove('show');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function resetImage() {
+            currentImage = null;
+            previewImage.src = '';
+            fileInput.value = '';
+            uploadSection.style.display = 'block';
+            previewSection.style.display = 'none';
+            document.getElementById('resultsSection').classList.remove('show');
+            document.getElementById('errorMessage').classList.remove('show');
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = 'ERROR: ' + message;
+            errorDiv.classList.add('show');
+            setTimeout(() => {
+                errorDiv.classList.remove('show');
+            }, 5000);
+        }
+
+        function analyzeSkin() {
+            if (!currentImage) {
+                showError('PLEASE UPLOAD IMAGE');
+                return;
+            }
+
+            // Показываем загрузку
+            document.getElementById('loading').classList.add('show');
+            analyzeBtn.disabled = true;
+            document.getElementById('resultsSection').classList.remove('show');
+            document.getElementById('errorMessage').classList.remove('show');
+
+            // Имитация анализа (здесь будет реальный API вызов)
+            setTimeout(() => {
+                // Пример результатов
+                const results = {
+                    acne_score: Math.random() * 100,
+                    pigmentation_score: Math.random() * 100,
+                    pores_size: Math.random() * 100,
+                    wrinkles_grade: Math.random() * 100,
+                    skin_tone: Math.random() * 100,
+                    texture_score: Math.random() * 100,
+                    moisture_level: Math.random() * 100,
+                    oiliness: Math.random() * 100
+                };
+
+                displayResults(results);
+                document.getElementById('loading').classList.remove('show');
+                analyzeBtn.disabled = false;
+            }, 2000);
+
+            // Для реального API:
+            // fetch('/api/analyze', {
+            //     method: 'POST',
+            //     headers: { 'Content-Type': 'application/json' },
+            //     body: JSON.stringify({ image: currentImage })
+            // })
+            // .then(response => response.json())
+            // .then(data => {
+            //     displayResults(data);
+            //     document.getElementById('loading').classList.remove('show');
+            //     analyzeBtn.disabled = false;
+            // })
+            // .catch(error => {
+            //     showError('ANALYSIS ERROR: ' + error.message);
+            //     document.getElementById('loading').classList.remove('show');
+            //     analyzeBtn.disabled = false;
+            // });
+        }
+
+        function displayResults(results) {
+            const resultsGrid = document.getElementById('resultsGrid');
+            resultsGrid.innerHTML = '';
+
+            const resultConfig = {
+                acne_score: { label: 'ACNE', unit: '%' },
+                pigmentation_score: { label: 'PIGMENTATION', unit: '%' },
+                pores_size: { label: 'PORES SIZE', unit: '%' },
+                wrinkles_grade: { label: 'WRINKLES', unit: '%' },
+                skin_tone: { label: 'SKIN TONE', unit: '%' },
+                texture_score: { label: 'TEXTURE', unit: '%' },
+                moisture_level: { label: 'MOISTURE', unit: '%' },
+                oiliness: { label: 'OILINESS', unit: '%' }
+            };
+
+            for (const [key, value] of Object.entries(results)) {
+                if (resultConfig[key]) {
+                    const config = resultConfig[key];
+                    const roundedValue = Math.round(value * 100) / 100;
+                    const grade = getGrade(value);
+
+                    const card = document.createElement('div');
+                    card.className = 'result-card';
+                    card.innerHTML = `
+                        <div class="result-label">${config.label}</div>
+                        <div class="result-value">${roundedValue}${config.unit}</div>
+                        <div class="result-grade ${grade.class}">${grade.text}</div>
+                    `;
+                    resultsGrid.appendChild(card);
+                }
+            }
+
+            document.getElementById('resultsSection').classList.add('show');
+        }
+
+        function getGrade(value) {
+            if (value >= 70) {
+                return { class: 'high', text: 'HIGH' };
+            } else if (value >= 40) {
+                return { class: 'medium', text: 'MEDIUM' };
+            } else {
+                return { class: 'low', text: 'LOW' };
+            }
+        }
+    </script>
+</body>
+</html>
+
