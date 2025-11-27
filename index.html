@@ -613,12 +613,6 @@
             <div class="error-message" id="errorMessage"></div>
 
             <div class="results-section" id="resultsSection">
-                <h2 style="text-align: center; margin-bottom: 20px;">
-                    РЕЗУЛЬТАТЫ АНАЛИЗА
-                </h2>
-                <div id="providerInfo" style="text-align: center; margin-bottom: 20px; padding: 10px; background: #0f0f1e; border: 2px solid #00ffff; font-size: 0.5em; color: #00ffff;">
-                    <div id="providerText"></div>
-                </div>
                 <div class="results-grid" id="resultsGrid"></div>
                 <div class="report-section" id="reportSection">
                     <h3 style="color: #ff00ff; margin-bottom: 10px;">ТЕКСТОВЫЙ ОТЧЁТ</h3>
@@ -941,24 +935,6 @@
                 }
 
                 if (data.data) {
-                    // Показываем информацию о провайдере
-                    const provider = data.provider || 'unknown';
-                    const model = data.model || 'unknown';
-                    
-                    let providerText = `✅ ПРОВАЙДЕР: ${provider.toUpperCase()}`;
-                    if (model && model !== 'unknown') {
-                        providerText += `\nМОДЕЛЬ: ${model}`;
-                    }
-                    
-                    const providerInfo = document.getElementById('providerInfo');
-                    providerInfo.style.borderColor = '#00ffff';
-                    providerInfo.style.color = '#00ffff';
-                    providerInfo.style.background = '#0f0f1e';
-                    providerInfo.style.boxShadow = '0 0 10px rgba(0,255,255,0.3)';
-                    providerInfo.style.whiteSpace = 'pre-line';
-                    
-                    document.getElementById('providerText').textContent = providerText;
-                    
                     displayResults(data.data);
                     
                     // Показываем текстовый отчёт если есть
@@ -967,8 +943,6 @@
                         document.getElementById('reportSection').classList.add('show');
                     }
                     
-                    console.log('Использован провайдер:', provider);
-                    console.log('Использована модель:', model);
                     console.log('Результаты:', data.data);
                 } else {
                     showError('НЕВЕРНЫЙ ФОРМАТ ОТВЕТА');

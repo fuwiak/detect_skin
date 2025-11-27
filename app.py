@@ -24,6 +24,7 @@ CORS(app)
 
 # Конфигурация API
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # Настройки моделей по умолчанию
 # Порядок попыток подключения к API для детекции
@@ -65,7 +66,7 @@ def analyze_image_with_openrouter(image_base64: str, model: str, temperature: fl
         return None
     
     try:
-        url = "https://openrouter.ai/api/v1/chat/completions"
+        url = OPENROUTER_API_URL
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
@@ -198,7 +199,7 @@ def generate_report_with_llm(skin_data: Dict, provider: str, model: str, tempera
         
         for model_to_use in models_to_try:
             try:
-                url = "https://openrouter.ai/api/v1/chat/completions"
+                url = OPENROUTER_API_URL
                 headers = {
                     "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                     "Content-Type": "application/json",

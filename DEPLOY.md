@@ -51,10 +51,13 @@ git push origin main
 
 ```
 OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_API_URL=https://openrouter.ai/api/v1/chat/completions
 PORT=5000
 ```
 
-**Важно:** Railway автоматически устанавливает переменную `PORT`, но лучше указать её явно.
+**Важно:** 
+- Railway автоматически устанавливает переменную `PORT`, но лучше указать её явно
+- `OPENROUTER_API_URL` опциональна, по умолчанию используется `https://openrouter.ai/api/v1/chat/completions`
 
 ### 4. Настройка деплоя
 
@@ -70,7 +73,8 @@ Railway автоматически обнаружит:
 
 Убедитесь, что в Railway Variables установлены:
 
-- `OPENROUTER_API_KEY` - ваш API ключ OpenRouter
+- `OPENROUTER_API_KEY` - ваш API ключ OpenRouter (обязательно)
+- `OPENROUTER_API_URL` - URL API OpenRouter (опционально, по умолчанию: `https://openrouter.ai/api/v1/chat/completions`)
 - `PORT` - порт (обычно Railway устанавливает автоматически)
 
 ## Проверка деплоя
