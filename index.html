@@ -421,7 +421,7 @@
         }
 
         /* Settings Panel */
-        .settings-toggle {
+        .settings-toggle, .language-toggle {
             position: fixed;
             top: 20px;
             right: 20px;
@@ -436,9 +436,19 @@
             font-family: 'Press Start 2P', cursive;
         }
 
-        .settings-toggle:hover {
+        .settings-toggle:hover, .language-toggle:hover {
             transform: translate(2px, 2px);
             box-shadow: 2px 2px 0 #000;
+        }
+
+        .language-toggle {
+            top: 80px;
+            background: #ff00ff;
+            color: #fff;
+        }
+
+        .language-toggle:hover {
+            box-shadow: 2px 2px 0 #000, 0 0 20px rgba(255,0,255,0.8);
         }
 
         .settings-panel {
@@ -531,74 +541,75 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>SKIN ANALYZER</h1>
-            <p>DETECT DISEASE TYPE</p>
+            <h1 id="headerTitle">SKIN ANALYZER</h1>
+            <p id="headerSubtitle">DETECT DISEASE TYPE</p>
         </div>
 
-        <button class="settings-toggle" onclick="toggleSettings()">⚙️ НАСТРОЙКИ</button>
+        <button class="settings-toggle" onclick="toggleSettings()" id="settingsBtn">⚙️ НАСТРОЙКИ</button>
+        <button class="language-toggle" onclick="toggleLanguage()" id="languageBtn">🌐 EN</button>
 
         <div class="settings-panel" id="settingsPanel">
-            <h3>НАСТРОЙКИ МОДЕЛИ</h3>
+            <h3 id="settingsTitle">НАСТРОЙКИ МОДЕЛИ</h3>
             
             <div class="setting-group">
-                <label class="setting-label">ПРОВАЙДЕР ДЕТЕКЦИИ</label>
+                <label class="setting-label" id="detectionProviderLabel">ПРОВАЙДЕР ДЕТЕКЦИИ</label>
                 <select class="setting-select" id="detectionProvider">
                     <option value="openrouter">OpenRouter</option>
                 </select>
             </div>
 
             <div class="setting-group">
-                <label class="setting-label">МОДЕЛЬ ВИЗИИ</label>
+                <label class="setting-label" id="visionModelLabel">МОДЕЛЬ ВИЗИИ</label>
                 <select class="setting-select" id="visionModel">
                     <!-- Опции загружаются динамически из /api/models/available -->
                 </select>
             </div>
 
             <div class="setting-group">
-                <label class="setting-label">ПРОВАЙДЕР LLM</label>
+                <label class="setting-label" id="llmProviderLabel">ПРОВАЙДЕР LLM</label>
                 <select class="setting-select" id="llmProvider">
                     <option value="openrouter">OpenRouter</option>
                 </select>
             </div>
 
             <div class="setting-group">
-                <label class="setting-label">ТЕКСТОВАЯ МОДЕЛЬ</label>
+                <label class="setting-label" id="textModelLabel">ТЕКСТОВАЯ МОДЕЛЬ</label>
                 <select class="setting-select" id="textModel">
                     <!-- Опции загружаются динамически из /api/models/available -->
                 </select>
             </div>
 
             <div class="setting-group">
-                <label class="setting-label">ТЕМПЕРАТУРА: <span class="setting-value" id="tempValue">0</span></label>
+                <label class="setting-label" id="temperatureLabel">ТЕМПЕРАТУРА: <span class="setting-value" id="tempValue">0</span></label>
                 <input type="range" class="setting-range" id="temperature" min="0" max="1" step="0.1" value="0" oninput="updateTempValue(this.value)">
             </div>
 
             <div class="setting-group">
-                <label class="setting-label">MAX TOKENS: <span class="setting-value" id="tokensValue">300</span></label>
+                <label class="setting-label" id="maxTokensLabel">MAX TOKENS: <span class="setting-value" id="tokensValue">300</span></label>
                 <input type="range" class="setting-range" id="maxTokens" min="100" max="2000" step="100" value="300" oninput="updateTokensValue(this.value)">
             </div>
 
-            <button class="upload-btn" onclick="saveSettings()" style="width: 100%; margin-top: 20px;">
+            <button class="upload-btn" onclick="saveSettings()" style="width: 100%; margin-top: 20px;" id="saveSettingsBtn">
                 СОХРАНИТЬ
             </button>
         </div>
 
         <div class="content">
             <div class="upload-section" id="uploadSection">
-                <h2>ЗАГРУЗИТЬ ФОТО</h2>
-                <p class="info-text">ПЕРЕТАЩИТЕ ИЛИ НАЖМИТЕ КНОПКУ</p>
+                <h2 id="uploadTitle">ЗАГРУЗИТЬ ФОТО</h2>
+                <p class="info-text" id="uploadInfo">ПЕРЕТАЩИТЕ ИЛИ НАЖМИТЕ КНОПКУ</p>
                 <input type="file" id="fileInput" accept="image/*">
                 <div class="buttons-group">
-                    <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                    <button class="upload-btn" onclick="document.getElementById('fileInput').click()" id="selectFileBtn">
                         ВЫБРАТЬ ФАЙЛ
                     </button>
                 </div>
             </div>
 
             <div class="preview-section" id="previewSection" style="display: none;">
-                <img id="previewImage" class="preview-image" alt="Предпросмотр">
+                <img id="previewImage" class="preview-image" alt="Preview">
                 <div class="buttons-group">
-                    <button class="btn-reset" onclick="resetImage()">СБРОСИТЬ</button>
+                    <button class="btn-reset" onclick="resetImage()" id="resetBtn">СБРОСИТЬ</button>
                     <button class="btn-analyze" id="analyzeBtn" onclick="analyzeSkin()">
                         АНАЛИЗИРОВАТЬ
                     </button>
@@ -607,7 +618,7 @@
 
             <div class="loading" id="loading">
                 <div class="spinner"></div>
-                <p style="color: #00ffff; text-shadow: 2px 2px 0 #000; font-size: 0.6em;">АНАЛИЗИРУЮ...</p>
+                <p style="color: #00ffff; text-shadow: 2px 2px 0 #000; font-size: 0.6em;" id="loadingText">АНАЛИЗИРУЮ...</p>
             </div>
 
             <div class="error-message" id="errorMessage"></div>
@@ -615,7 +626,7 @@
             <div class="results-section" id="resultsSection">
                 <div class="results-grid" id="resultsGrid"></div>
                 <div class="report-section" id="reportSection">
-                    <h3 style="color: #ff00ff; margin-bottom: 10px;">ТЕКСТОВЫЙ ОТЧЁТ</h3>
+                    <h3 style="color: #ff00ff; margin-bottom: 10px;" id="reportTitle">ТЕКСТОВЫЙ ОТЧЁТ</h3>
                     <div id="reportText"></div>
                 </div>
             </div>
@@ -624,6 +635,135 @@
 
     <script>
         let currentImage = null;
+        let currentLanguage = localStorage.getItem('skinAnalyzerLanguage') || 'ru';
+
+        // Translations
+        const translations = {
+            ru: {
+                settings: 'НАСТРОЙКИ',
+                language: 'EN',
+                settingsTitle: 'НАСТРОЙКИ МОДЕЛИ',
+                detectionProvider: 'ПРОВАЙДЕР ДЕТЕКЦИИ',
+                visionModel: 'МОДЕЛЬ ВИЗИИ',
+                llmProvider: 'ПРОВАЙДЕР LLM',
+                textModel: 'ТЕКСТОВАЯ МОДЕЛЬ',
+                temperature: 'ТЕМПЕРАТУРА:',
+                maxTokens: 'MAX TOKENS:',
+                save: 'СОХРАНИТЬ',
+                uploadTitle: 'ЗАГРУЗИТЬ ФОТО',
+                uploadInfo: 'ПЕРЕТАЩИТЕ ИЛИ НАЖМИТЕ КНОПКУ',
+                selectFile: 'ВЫБРАТЬ ФАЙЛ',
+                reset: 'СБРОСИТЬ',
+                analyze: 'АНАЛИЗИРОВАТЬ',
+                analyzing: 'АНАЛИЗИРУЮ...',
+                reportTitle: 'ТЕКСТОВЫЙ ОТЧЁТ',
+                error: 'ОШИБКА:',
+                loadImage: 'ЗАГРУЗИТЕ ИЗОБРАЖЕНИЕ',
+                pleaseSelectImage: 'Пожалуйста, выберите изображение',
+                analysisError: 'ОШИБКА АНАЛИЗА',
+                details: 'Детали:',
+                openrouterKeyNotFound: 'OPENROUTER_API_KEY не найден',
+                invalidFormat: 'НЕВЕРНЫЙ ФОРМАТ ОТВЕТА',
+                settingsSaved: 'НАСТРОЙКИ СОХРАНЕНЫ',
+                acne: 'АКНЕ',
+                pigmentation: 'ПИГМЕНТАЦИЯ',
+                pores: 'РАЗМЕР ПОР',
+                wrinkles: 'МОРЩИНЫ',
+                skinTone: 'ТОН КОЖИ',
+                texture: 'ТЕКСТУРА',
+                moisture: 'УВЛАЖНЕННОСТЬ',
+                oiliness: 'ЖИРНОСТЬ',
+                high: 'ВЫСОКИЙ',
+                medium: 'СРЕДНИЙ',
+                low: 'НИЗКИЙ',
+                headerTitle: 'SKIN ANALYZER',
+                headerSubtitle: 'DETECT DISEASE TYPE'
+            },
+            en: {
+                settings: 'SETTINGS',
+                language: 'RU',
+                settingsTitle: 'MODEL SETTINGS',
+                detectionProvider: 'DETECTION PROVIDER',
+                visionModel: 'VISION MODEL',
+                llmProvider: 'LLM PROVIDER',
+                textModel: 'TEXT MODEL',
+                temperature: 'TEMPERATURE:',
+                maxTokens: 'MAX TOKENS:',
+                save: 'SAVE',
+                uploadTitle: 'UPLOAD PHOTO',
+                uploadInfo: 'DRAG AND DROP OR CLICK BUTTON',
+                selectFile: 'SELECT FILE',
+                reset: 'RESET',
+                analyze: 'ANALYZE',
+                analyzing: 'ANALYZING...',
+                reportTitle: 'TEXT REPORT',
+                error: 'ERROR:',
+                loadImage: 'LOAD IMAGE',
+                pleaseSelectImage: 'Please select an image',
+                analysisError: 'ANALYSIS ERROR',
+                details: 'Details:',
+                openrouterKeyNotFound: 'OPENROUTER_API_KEY not found',
+                invalidFormat: 'INVALID RESPONSE FORMAT',
+                settingsSaved: 'SETTINGS SAVED',
+                acne: 'ACNE',
+                pigmentation: 'PIGMENTATION',
+                pores: 'PORES SIZE',
+                wrinkles: 'WRINKLES',
+                skinTone: 'SKIN TONE',
+                texture: 'TEXTURE',
+                moisture: 'MOISTURE',
+                oiliness: 'OILINESS',
+                high: 'HIGH',
+                medium: 'MEDIUM',
+                low: 'LOW',
+                headerTitle: 'SKIN ANALYZER',
+                headerSubtitle: 'DETECT DISEASE TYPE'
+            }
+        };
+
+        function t(key) {
+            return translations[currentLanguage][key] || key;
+        }
+
+        function toggleLanguage() {
+            currentLanguage = currentLanguage === 'ru' ? 'en' : 'ru';
+            localStorage.setItem('skinAnalyzerLanguage', currentLanguage);
+            updateLanguage();
+        }
+
+        function updateLanguage() {
+            // Update button text
+            document.getElementById('languageBtn').textContent = '🌐 ' + t('language');
+            document.getElementById('settingsBtn').textContent = '⚙️ ' + t('settings');
+            
+            // Update header
+            document.getElementById('headerTitle').textContent = t('headerTitle');
+            document.getElementById('headerSubtitle').textContent = t('headerSubtitle');
+            
+            // Update settings panel
+            document.getElementById('settingsTitle').textContent = t('settingsTitle');
+            document.getElementById('detectionProviderLabel').textContent = t('detectionProvider');
+            document.getElementById('visionModelLabel').textContent = t('visionModel');
+            document.getElementById('llmProviderLabel').textContent = t('llmProvider');
+            document.getElementById('textModelLabel').textContent = t('textModel');
+            document.getElementById('temperatureLabel').innerHTML = t('temperature') + ' <span class="setting-value" id="tempValue">' + document.getElementById('tempValue').textContent + '</span>';
+            document.getElementById('maxTokensLabel').innerHTML = t('maxTokens') + ' <span class="setting-value" id="tokensValue">' + document.getElementById('tokensValue').textContent + '</span>';
+            document.getElementById('saveSettingsBtn').textContent = t('save');
+            
+            // Update main content
+            document.getElementById('uploadTitle').textContent = t('uploadTitle');
+            document.getElementById('uploadInfo').textContent = t('uploadInfo');
+            document.getElementById('selectFileBtn').textContent = t('selectFile');
+            document.getElementById('resetBtn').textContent = t('reset');
+            document.getElementById('analyzeBtn').textContent = t('analyze');
+            document.getElementById('loadingText').textContent = t('analyzing');
+            document.getElementById('reportTitle').textContent = t('reportTitle');
+            document.getElementById('previewImage').alt = currentLanguage === 'ru' ? 'Предпросмотр' : 'Preview';
+            
+            // Update page title
+            document.title = currentLanguage === 'ru' ? 'Анализ кожи - Detect Skin' : 'Skin Analysis - Detect Skin';
+            document.documentElement.lang = currentLanguage;
+        }
 
         // Обработка загрузки файла
         const fileInput = document.getElementById('fileInput');
@@ -662,7 +802,7 @@
 
         function handleFile(file) {
             if (!file.type.startsWith('image/')) {
-                showError('Пожалуйста, выберите изображение');
+                showError(t('pleaseSelectImage'));
                 return;
             }
 
@@ -690,7 +830,7 @@
 
         function showError(message) {
             const errorDiv = document.getElementById('errorMessage');
-            errorDiv.textContent = 'ОШИБКА: ' + message;
+            errorDiv.textContent = t('error') + ' ' + message;
             errorDiv.classList.add('show');
             setTimeout(() => {
                 errorDiv.classList.remove('show');
@@ -822,7 +962,7 @@
             // Сохраняем в localStorage
             localStorage.setItem('skinAnalyzerConfig', JSON.stringify(currentConfig));
             
-            alert('НАСТРОЙКИ СОХРАНЕНЫ');
+            alert(t('settingsSaved'));
         }
 
         async function loadSettings() {
@@ -881,7 +1021,7 @@
 
         function analyzeSkin() {
             if (!currentImage) {
-                showError('ЗАГРУЗИТЕ ИЗОБРАЖЕНИЕ');
+                showError(t('loadImage'));
                 return;
             }
 
@@ -921,11 +1061,11 @@
             })
             .then(data => {
                 if (!data.success) {
-                    let errorMsg = data.error || 'ОШИБКА АНАЛИЗА';
+                    let errorMsg = data.error || t('analysisError');
                     if (data.details) {
-                        errorMsg += '\n\nДетали:';
+                        errorMsg += '\n\n' + t('details');
                         if (data.details.openrouter_available === false) {
-                            errorMsg += '\n- OPENROUTER_API_KEY не найден';
+                            errorMsg += '\n- ' + t('openrouterKeyNotFound');
                         }
                     }
                     showError(errorMsg);
@@ -945,14 +1085,14 @@
                     
                     console.log('Результаты:', data.data);
                 } else {
-                    showError('НЕВЕРНЫЙ ФОРМАТ ОТВЕТА');
+                    showError(t('invalidFormat'));
                 }
                 
                 document.getElementById('loading').classList.remove('show');
                 analyzeBtn.disabled = false;
             })
             .catch(error => {
-                showError('ОШИБКА АНАЛИЗА: ' + error.message);
+                showError(t('analysisError') + ': ' + error.message);
                 document.getElementById('loading').classList.remove('show');
                 analyzeBtn.disabled = false;
             });
@@ -963,14 +1103,14 @@
             resultsGrid.innerHTML = '';
 
             const resultConfig = {
-                acne_score: { label: 'АКНЕ', unit: '%' },
-                pigmentation_score: { label: 'ПИГМЕНТАЦИЯ', unit: '%' },
-                pores_size: { label: 'РАЗМЕР ПОР', unit: '%' },
-                wrinkles_grade: { label: 'МОРЩИНЫ', unit: '%' },
-                skin_tone: { label: 'ТОН КОЖИ', unit: '%' },
-                texture_score: { label: 'ТЕКСТУРА', unit: '%' },
-                moisture_level: { label: 'УВЛАЖНЕННОСТЬ', unit: '%' },
-                oiliness: { label: 'ЖИРНОСТЬ', unit: '%' }
+                acne_score: { label: t('acne'), unit: '%' },
+                pigmentation_score: { label: t('pigmentation'), unit: '%' },
+                pores_size: { label: t('pores'), unit: '%' },
+                wrinkles_grade: { label: t('wrinkles'), unit: '%' },
+                skin_tone: { label: t('skinTone'), unit: '%' },
+                texture_score: { label: t('texture'), unit: '%' },
+                moisture_level: { label: t('moisture'), unit: '%' },
+                oiliness: { label: t('oiliness'), unit: '%' }
             };
 
             for (const [key, value] of Object.entries(results)) {
@@ -995,11 +1135,11 @@
 
         function getGrade(value) {
             if (value >= 70) {
-                return { class: 'high', text: 'ВЫСОКИЙ' };
+                return { class: 'high', text: t('high') };
             } else if (value >= 40) {
-                return { class: 'medium', text: 'СРЕДНИЙ' };
+                return { class: 'medium', text: t('medium') };
             } else {
-                return { class: 'low', text: 'НИЗКИЙ' };
+                return { class: 'low', text: t('low') };
             }
         }
 
@@ -1008,6 +1148,7 @@
             // Сначала загружаем доступные модели, потом настройки
             await loadAvailableModels();
             await loadSettings();
+            updateLanguage();
         });
     </script>
 </body>
