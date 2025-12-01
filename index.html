@@ -728,6 +728,7 @@
         function toggleLanguage() {
             currentLanguage = currentLanguage === 'ru' ? 'en' : 'ru';
             localStorage.setItem('skinAnalyzerLanguage', currentLanguage);
+            currentConfig.language = currentLanguage;
             updateLanguage();
         }
 
@@ -844,7 +845,8 @@
             vision_model: 'google/gemini-2.0-flash-001',
             text_model: 'anthropic/claude-3.5-sonnet',
             temperature: 0,
-            max_tokens: 300
+            max_tokens: 300,
+            language: currentLanguage
         };
 
         function toggleSettings() {
@@ -971,6 +973,14 @@
                 currentConfig = JSON.parse(saved);
             }
             
+            // Устанавливаем язык из сохранённых настроек или из localStorage
+            if (currentConfig.language) {
+                currentLanguage = currentConfig.language;
+            } else {
+                currentLanguage = localStorage.getItem('skinAnalyzerLanguage') || 'ru';
+                currentConfig.language = currentLanguage;
+            }
+            
             // Применяем настройки к UI
             document.getElementById('detectionProvider').value = currentConfig.detection_provider;
             document.getElementById('llmProvider').value = currentConfig.llm_provider;
@@ -1032,6 +1042,7 @@
             currentConfig.text_model = document.getElementById('textModel').value;
             currentConfig.temperature = parseFloat(document.getElementById('temperature').value);
             currentConfig.max_tokens = parseInt(document.getElementById('maxTokens').value);
+            currentConfig.language = currentLanguage;  // Добавляем текущий язык
 
             console.log('Отправка запроса с конфигом:', currentConfig);
 

@@ -180,9 +180,22 @@ def parse_skin_analysis_from_text(text: str) -> Dict:
     return result
 
 
-def generate_report_with_llm(skin_data: Dict, provider: str, model: str, temperature: float) -> str:
+def generate_report_with_llm(skin_data: Dict, provider: str, model: str, temperature: float, language: str = 'ru') -> str:
     """Генерация текстового отчёта с помощью LLM"""
-    report_prompt = f"""Ты специалист по заболеваниям и дефектам кожи. На основе следующих данных анализа кожи создай краткий и лаконичный текстовый отчёт на русском языке:
+    
+    if language == 'en':
+        report_prompt = f"""You are a specialist in skin diseases and defects. Based on the following skin analysis data, create a brief and concise text report in English:
+
+{json.dumps(skin_data, ensure_ascii=False, indent=2)}
+
+The report should include:
+1. A brief assessment of skin condition
+2. Description of problems: Acne, Pigmentation (IMPORTANT: pigmentation spots are flat areas of changed skin color, DO NOT confuse them with papillomas - raised formations), Pore size, Wrinkles, Skin tone, Texture, Moisture, Oiliness
+3. Indication of where on the face the problems are located and how many there are
+
+The report should be brief, concise and professional."""
+    else:
+        report_prompt = f"""Ты специалист по заболеваниям и дефектам кожи. На основе следующих данных анализа кожи создай краткий и лаконичный текстовый отчёт на русском языке:
 
 {json.dumps(skin_data, ensure_ascii=False, indent=2)}
 
@@ -272,6 +285,7 @@ def analyze_skin():
         text_model = config.get('text_model', DEFAULT_TEXT_MODEL)
         temperature = config.get('temperature', 0.7)
         max_tokens = config.get('max_tokens', 1000)
+        language = config.get('language', 'ru')  # Язык для генерации отчёта
         
         # Пробуем детекцию через доступные API
         skin_data = None
@@ -342,7 +356,7 @@ def analyze_skin():
         logger.info("="*80)
         
         # Генерируем текстовый отчёт
-        report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature)
+        report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature, language)
         
         return jsonify({
             "success": True,
