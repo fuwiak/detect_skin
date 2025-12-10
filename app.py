@@ -622,7 +622,7 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                 'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
                 'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
                 'area': 'face',
-                'position': {**position, 'type': 'area'},
+                'position': {**position, 'type': 'area', 'shape': position.get('shape', 'ellipse')},
                 'is_area': True
             })
     
