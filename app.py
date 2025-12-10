@@ -29,6 +29,15 @@ except ImportError:
     HEIC_SUPPORT = False
     logger.warning("pillow-heif не установлен, поддержка HEIC будет ограничена")
 
+# Импорт модуля сегментации
+try:
+    from skin_segmentation import get_segmenter
+    SEGMENTATION_AVAILABLE = True
+    logger.info("Модуль сегментации доступен")
+except ImportError as e:
+    SEGMENTATION_AVAILABLE = False
+    logger.warning(f"Модуль сегментации недоступен: {e}")
+
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -626,12 +635,38 @@ def convert_bbox_to_position(bbox: List[float], image_width: int = 1000, image_h
     }
 
 
-def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dict:
+def generate_heuristic_analysis(skin_data: Dict, report_text: str = None, image_bytes: Optional[bytes] = None) -> Dict:
     """Генерирует эвристический анализ на основе данных OpenRouter и текстового отчёта"""
     concerns = []
     
     # Получаем bounding boxes, если они есть
     bounding_boxes = skin_data.get('_bounding_boxes', {})
+    
+    # Пытаемся использовать сегментацию для улучшения обнаружения
+    segmentation_results = None
+    if SEGMENTATION_AVAILABLE and image_bytes:
+        try:
+            segmenter = get_segmenter()
+            segmentation_results = segmenter.segment_image(image_bytes)
+            logger.info("Сегментация выполнена успешно")
+            
+            # Добавляем результаты сегментации в bounding_boxes
+            if segmentation_results:
+                if 'wrinkles' in segmentation_results and segmentation_results['wrinkles']:
+                    if 'wrinkles' not in bounding_boxes:
+                        bounding_boxes['wrinkles'] = []
+                    for wrinkle in segmentation_results['wrinkles']:
+                        if wrinkle.get('confidence', 0) > 0.3:  # Фильтруем по уверенности
+                            bounding_boxes['wrinkles'].append(wrinkle['bbox'])
+                
+                if 'pigmentation' in segmentation_results and segmentation_results['pigmentation']:
+                    if 'pigmentation' not in bounding_boxes:
+                        bounding_boxes['pigmentation'] = []
+                    for pig in segmentation_results['pigmentation']:
+                        if pig.get('confidence', 0) > 0.2:  # Фильтруем по уверенности
+                            bounding_boxes['pigmentation'].append(pig['bbox'])
+        except Exception as e:
+            logger.warning(f"Ошибка при сегментации: {e}")
     
     # Парсим локализацию из отчёта, если он есть
     report_locations = {}
@@ -1007,14 +1042,15 @@ def analyze_skin():
         # Генерируем текстовый отчёт
         report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature, language)
         
-        # Если используем эвристики, генерируем данные с учётом отчёта
+        # Если используем эвристики, генерируем данные с учётом отчёта и сегментации
         if use_heuristics:
-            logger.info("Генерация эвристического анализа с учётом текстового отчёта")
-            heuristic_data = generate_heuristic_analysis(skin_data, report)
+            logger.info("Генерация эвристического анализа с учётом текстового отчёта и сегментации")
+            # Передаем image_bytes для сегментации
+            heuristic_data = generate_heuristic_analysis(skin_data, report, image_bytes)
             pixelbin_images = [{
                 'type': 'heuristic',
                 'heuristic_data': heuristic_data,
-                'message': 'Использован эвристический анализ'
+                'message': 'Использован эвристический анализ с сегментацией'
             }]
         
         return jsonify({
