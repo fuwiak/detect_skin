@@ -1108,8 +1108,16 @@ def analyze_skin():
                     pixelbin_images = extract_images_from_pixelbin_response(final_result)
                     logger.info(f"Pixelbin: получено {len(pixelbin_images)} изображений")
                 else:
-                    # Если задача завершилась с ошибкой или не завершена, используем эвристики
-                    logger.warning(f"Pixelbin: задача не завершена или завершилась с ошибкой, используем эвристики")
+                    # Проверяем, была ли ошибка API в результате
+                    if final_result and final_result.get('error'):
+                        error_type = final_result.get('error')
+                        status_code = final_result.get('status_code', 0)
+                        if error_type in ['usage_limit_exceeded', 'rate_limit_exceeded', 'server_error', 'api_error']:
+                            logger.warning(f"Pixelbin: ошибка API при проверке статуса ({error_type}, {status_code}), используем эвристики")
+                        else:
+                            logger.warning(f"Pixelbin: задача завершилась с ошибкой ({error_type}), используем эвристики")
+                    else:
+                        logger.warning(f"Pixelbin: задача не завершена или завершилась с ошибкой, используем эвристики")
                     use_heuristics = True
             elif use_heuristics:
                 # Используем эвристический анализ (отчёт будет сгенерирован позже)
