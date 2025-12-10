@@ -1253,7 +1253,9 @@
                 // Формируем метаданные
                 let metaText = '';
                 if (image.concern_name) {
-                    metaText = `${image.concern_name} (${image.value})`;
+                    metaText = `${image.concern_name}: ${image.value} (${image.severity || ''})`;
+                } else if (image.type === 'zone') {
+                    metaText = image.title.split('(')[1]?.replace(')', '') || '';
                 } else if (image.type) {
                     metaText = image.type;
                 }

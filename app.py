@@ -153,6 +153,7 @@ def extract_images_from_pixelbin_response(pixelbin_data: Dict) -> List[Dict]:
     images = []
     
     if not pixelbin_data or 'output' not in pixelbin_data:
+        logger.warning("Pixelbin: нет данных output в ответе")
         return images
     
     output = pixelbin_data.get('output', {})
@@ -172,6 +173,14 @@ def extract_images_from_pixelbin_response(pixelbin_data: Dict) -> List[Dict]:
             'url': skin_data['inputImage'],
             'title': 'Обработанное изображение',
             'type': 'processed'
+        })
+    
+    # Facial hair URL (если есть)
+    if 'facial_hair_url' in skin_data and skin_data.get('facial_hair_url'):
+        images.append({
+            'url': skin_data['facial_hair_url'],
+            'title': 'Facial Hair',
+            'type': 'facial_hair'
         })
     
     # Зоны лица
@@ -200,8 +209,9 @@ def extract_images_from_pixelbin_response(pixelbin_data: Dict) -> List[Dict]:
     
     # Изображения проблем (concerns)
     if 'concerns' in skin_data:
+        concerns_count = 0
         for concern in skin_data['concerns']:
-            if 'image' in concern:
+            if 'image' in concern and concern.get('image'):
                 images.append({
                     'url': concern['image'],
                     'title': concern.get('name', 'Проблема'),
@@ -210,7 +220,10 @@ def extract_images_from_pixelbin_response(pixelbin_data: Dict) -> List[Dict]:
                     'value': concern.get('value', 0),
                     'severity': concern.get('severity', '')
                 })
+                concerns_count += 1
+        logger.info(f"Pixelbin: извлечено {concerns_count} изображений из concerns")
     
+    logger.info(f"Pixelbin: всего извлечено {len(images)} изображений")
     return images
 
 
