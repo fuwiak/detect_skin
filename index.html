@@ -498,20 +498,29 @@
 
         .heuristic-marker {
             position: absolute;
-            width: 20px;
-            height: 20px;
-            background: #ff0080;
-            border: 3px solid #00ffff;
-            border-radius: 50%;
+            width: 30px;
+            height: 30px;
             cursor: pointer;
-            box-shadow: 0 0 10px rgba(255,0,128,0.8);
             transform: translate(-50%, -50%);
             z-index: 10;
         }
 
-        .heuristic-marker:hover {
-            transform: translate(-50%, -50%) scale(1.2);
-            box-shadow: 0 0 20px rgba(255,0,128,1);
+        .heuristic-marker-polygon {
+            width: 100%;
+            height: 100%;
+            fill: #ff0080;
+            stroke: #00ffff;
+            stroke-width: 3;
+            filter: drop-shadow(0 0 5px rgba(255,0,128,0.8));
+            transition: all 0.2s;
+        }
+
+        .heuristic-marker:hover .heuristic-marker-polygon {
+            fill: #ff00ff;
+            stroke: #00ffff;
+            stroke-width: 4;
+            filter: drop-shadow(0 0 15px rgba(255,0,128,1));
+            transform: scale(1.2);
         }
 
         .heuristic-tooltip {
@@ -1510,13 +1519,37 @@
                         marker.style.left = `${concern.position.x}%`;
                         marker.style.top = `${concern.position.y}%`;
                         
+                        // Создаём SVG пятиугольник
+                        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                        svg.setAttribute('width', '30');
+                        svg.setAttribute('height', '30');
+                        svg.setAttribute('viewBox', '0 0 30 30');
+                        
+                        // Пятиугольник (пентагон) - координаты центра (15, 15), радиус ~12
+                        const centerX = 15;
+                        const centerY = 15;
+                        const radius = 12;
+                        const points = [];
+                        for (let i = 0; i < 5; i++) {
+                            const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2; // Начинаем сверху
+                            const x = centerX + radius * Math.cos(angle);
+                            const y = centerY + radius * Math.sin(angle);
+                            points.push(`${x},${y}`);
+                        }
+                        
+                        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                        polygon.setAttribute('points', points.join(' '));
+                        polygon.setAttribute('class', 'heuristic-marker-polygon');
+                        svg.appendChild(polygon);
+                        marker.appendChild(svg);
+                        
                         // Добавляем tooltip
                         marker.addEventListener('mouseenter', function(e) {
                             const tooltip = document.createElement('div');
                             tooltip.className = 'heuristic-tooltip';
                             tooltip.textContent = `${concern.name} (${concern.value})`;
-                            tooltip.style.left = '25px';
-                            tooltip.style.top = '25px';
+                            tooltip.style.left = '35px';
+                            tooltip.style.top = '35px';
                             marker.appendChild(tooltip);
                         });
                         

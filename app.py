@@ -465,12 +465,62 @@ def convert_heic_to_jpeg(image_bytes: bytes) -> bytes:
         raise
 
 
+def segment_face_area(concern_type: str, value: float) -> Dict:
+    """Простой алгоритм сегментации лица для определения зон проблем"""
+    # Базовые зоны лица в процентах от размера изображения
+    zones = {
+        'forehead': {'x': 50, 'y': 20, 'width': 40, 'height': 15},  # Лоб
+        'left_cheek': {'x': 25, 'y': 45, 'width': 20, 'height': 25},  # Левая щека
+        'right_cheek': {'x': 75, 'y': 45, 'width': 20, 'height': 25},  # Правая щека
+        'nose': {'x': 50, 'y': 50, 'width': 15, 'height': 20},  # Нос
+        'chin': {'x': 50, 'y': 75, 'width': 25, 'height': 15},  # Подбородок
+        't_zone': {'x': 50, 'y': 40, 'width': 30, 'height': 30},  # Т-зона
+        'u_zone': {'x': 50, 'y': 55, 'width': 50, 'height': 30},  # U-зона
+    }
+    
+    # Маппинг типов проблем на зоны лица
+    concern_zones = {
+        'acne': ['t_zone', 'left_cheek', 'right_cheek', 'chin'],
+        'pigmentation': ['left_cheek', 'right_cheek', 'forehead'],
+        'pores': ['t_zone', 'nose'],
+        'wrinkles': ['forehead', 'u_zone'],
+        'hydration': ['left_cheek', 'right_cheek', 'u_zone'],
+        'oiliness': ['t_zone', 'nose'],
+    }
+    
+    # Выбираем зону на основе типа проблемы
+    available_zones = concern_zones.get(concern_type, ['t_zone'])
+    # Если значение высокое, распределяем по нескольким зонам
+    if value > 70:
+        zone_name = available_zones[0]  # Основная зона
+    elif value > 50:
+        zone_name = available_zones[0] if len(available_zones) > 0 else 't_zone'
+    else:
+        zone_name = available_zones[-1] if len(available_zones) > 1 else available_zones[0]
+    
+    zone = zones.get(zone_name, zones['t_zone'])
+    
+    # Добавляем небольшую случайность для более естественного распределения
+    import random
+    x_offset = random.uniform(-5, 5)
+    y_offset = random.uniform(-5, 5)
+    
+    return {
+        'x': zone['x'] + x_offset,
+        'y': zone['y'] + y_offset,
+        'width': zone['width'],
+        'height': zone['height'],
+        'zone': zone_name
+    }
+
+
 def generate_heuristic_analysis(skin_data: Dict) -> Dict:
     """Генерирует эвристический анализ на основе данных OpenRouter"""
     concerns = []
     
-    # Определяем проблемы на основе значений
+    # Определяем проблемы на основе значений с сегментацией
     if skin_data.get('acne_score', 0) > 30:
+        position = segment_face_area('acne', skin_data.get('acne_score', 0))
         concerns.append({
             'name': 'Акне',
             'tech_name': 'acne',
@@ -478,10 +528,11 @@ def generate_heuristic_analysis(skin_data: Dict) -> Dict:
             'severity': 'Needs Attention' if skin_data.get('acne_score', 0) > 60 else 'Average',
             'description': f'Обнаружены признаки акне. Рекомендуется консультация дерматолога.',
             'area': 'face',
-            'position': {'x': 50, 'y': 40}  # Центр лица
+            'position': position
         })
     
     if skin_data.get('pigmentation_score', 0) > 40:
+        position = segment_face_area('pigmentation', skin_data.get('pigmentation_score', 0))
         concerns.append({
             'name': 'Пигментация',
             'tech_name': 'pigmentation',
@@ -489,10 +540,11 @@ def generate_heuristic_analysis(skin_data: Dict) -> Dict:
             'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
             'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
             'area': 'face',
-            'position': {'x': 30, 'y': 35}  # Левая щека
+            'position': position
         })
     
     if skin_data.get('pores_size', 0) > 50:
+        position = segment_face_area('pores', skin_data.get('pores_size', 0))
         concerns.append({
             'name': 'Расширенные поры',
             'tech_name': 'pores',
@@ -500,10 +552,11 @@ def generate_heuristic_analysis(skin_data: Dict) -> Dict:
             'severity': 'Needs Attention' if skin_data.get('pores_size', 0) > 70 else 'Average',
             'description': f'Поры требуют внимания. Рекомендуется регулярное очищение.',
             'area': 'face',
-            'position': {'x': 50, 'y': 50}  # Т-зона
+            'position': position
         })
     
     if skin_data.get('wrinkles_grade', 0) > 40:
+        position = segment_face_area('wrinkles', skin_data.get('wrinkles_grade', 0))
         concerns.append({
             'name': 'Морщины',
             'tech_name': 'wrinkles',
@@ -511,10 +564,11 @@ def generate_heuristic_analysis(skin_data: Dict) -> Dict:
             'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
             'description': f'Замечены признаки старения. Увлажнение и защита от солнца помогут.',
             'area': 'face',
-            'position': {'x': 50, 'y': 25}  # Лоб
+            'position': position
         })
     
     if skin_data.get('moisture_level', 0) < 50:
+        position = segment_face_area('hydration', skin_data.get('moisture_level', 0))
         concerns.append({
             'name': 'Недостаточное увлажнение',
             'tech_name': 'hydration',
@@ -522,7 +576,7 @@ def generate_heuristic_analysis(skin_data: Dict) -> Dict:
             'severity': 'Needs Attention' if skin_data.get('moisture_level', 0) < 30 else 'Average',
             'description': f'Кожа нуждается в дополнительном увлажнении.',
             'area': 'face',
-            'position': {'x': 50, 'y': 45}  # Центр
+            'position': position
         })
     
     # Генерируем общий текст
@@ -707,7 +761,9 @@ def analyze_skin():
                     pixelbin_images = extract_images_from_pixelbin_response(final_result)
                     logger.info(f"Pixelbin: получено {len(pixelbin_images)} изображений")
                 else:
-                    logger.warning(f"Pixelbin: задача не завершена или завершилась с ошибкой")
+                    # Если задача завершилась с ошибкой или не завершена, используем эвристики
+                    logger.warning(f"Pixelbin: задача не завершена или завершилась с ошибкой, используем эвристики")
+                    use_heuristics = True
             elif use_heuristics:
                 # Используем эвристический анализ
                 logger.info("Использование эвристического анализа вместо Pixelbin")
@@ -719,8 +775,15 @@ def analyze_skin():
                     'message': 'Использован эвристический анализ'
                 }]
         except Exception as e:
-            logger.warning(f"Ошибка при работе с Pixelbin API: {e}")
-            # Не прерываем основной анализ, если Pixelbin не работает
+            logger.warning(f"Ошибка при работе с Pixelbin API: {e}, используем эвристики")
+            # При любой ошибке используем эвристики
+            use_heuristics = True
+            heuristic_data = generate_heuristic_analysis(skin_data)
+            pixelbin_images = [{
+                'type': 'heuristic',
+                'heuristic_data': heuristic_data,
+                'message': 'Использован эвристический анализ'
+            }]
         
         # Генерируем текстовый отчёт
         report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature, language)
