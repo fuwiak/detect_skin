@@ -1,0 +1,231 @@
+{
+  "input": {
+    "image": "https://delivery.pixelbin.io/predictions/inputs/skinAnalysisInt/generate/019b033e-276b-700d-9e1b-a8fe645b3ae6/image/0.png"
+  },
+  "status": "SUCCESS",
+  "urls": {
+    "get": "https://api.pixelbin.io/service/platform/transformation/v1.0/predictions/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6"
+  },
+  "orgId": 14208987,
+  "retention": "30d",
+  "createdAt": "2025-12-09T13:12:43.627Z",
+  "_id": "skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6",
+  "consumedCredits": 5,
+  "output": {
+    "skinData": {
+      "total_skin_score": 88,
+      "skin_age": 17,
+      "eye_age": 17,
+      "skin_health": "Average",
+      "skin_tone": "Olive",
+      "skin_shade": "9D7A54",
+      "skin_type": "Combination",
+      "inputImage": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/api_image.jpg",
+      "facial_hair": 0,
+      "facial_hair_url": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/api_image.jpg",
+      "zones": {
+        "t_zone": {
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/t_zone.jpg",
+          "type": "Oily"
+        },
+        "u_zone": {
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/u_zone.jpg",
+          "type": "Normal"
+        }
+      },
+      "combine_masked_url": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/combine_mask.jpg",
+      "summary": "Your skin is doing well overall, but there are some minor areas that could use attention, such as uneven texture or visible pores. Consistent care can bring it to its best.",
+      "concerns": [
+        {
+          "area_name": "face",
+          "name": "Post Acne Scars",
+          "tech_name": "scars",
+          "value": 50,
+          "score_range": [
+            "0-49",
+            "50-89",
+            "90-100"
+          ],
+          "severity": "Average",
+          "severity_list": [
+            "Needs Attention",
+            "Average",
+            "Good"
+          ],
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/scar.jpg",
+          "description": "Your skin shows mild scarring, such as faint marks or slightly uneven texture. With a proper regimen—like gentle exfoliation or targeted treatments—you can gradually fade these scars.",
+          "analyses": "Estimates the presence and severity of visible acne spots, such as whiteheads and inflamed pimples accompanied by redness.",
+          "sub_areas": []
+        },
+        {
+          "area_name": "face",
+          "name": "Hydration",
+          "tech_name": "hydration",
+          "value": 69,
+          "score_range": [
+            "0-49",
+            "50-89",
+            "90-100"
+          ],
+          "severity": "Average",
+          "severity_list": [
+            "Needs Attention",
+            "Average",
+            "Good"
+          ],
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/hydration.jpg",
+          "description": "Hydration levels are moderate, suggesting that your skin is adequately moisturized but could benefit from additional hydration. Regular use of moisturizers and hydrating serums can help maintain this balance.",
+          "analyses": "Hydration is a skin health parameter, that may vary a lot during the day and change very quickly due to the natural properties of the skin.",
+          "sub_areas": []
+        },
+        {
+          "area_name": "face",
+          "name": "Pigmentation",
+          "tech_name": "pigmentation",
+          "value": 84,
+          "score_range": [
+            "0-49",
+            "50-79",
+            "80-100"
+          ],
+          "severity": "Good",
+          "severity_list": [
+            "Needs Attention",
+            "Average",
+            "Good"
+          ],
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/pigmentation.jpg",
+          "description": "Values from 80 to 100 are considered as a relatively good skin condition.",
+          "analyses": "Estimates the visible presence and severity of local patches of skin of size up to several cm, that are darker in colour than the normal surrounding skin due to the local excess of melanin, the parameters on: forehead, right cheek, left cheek, nose and chin area are analysed.",
+          "sub_areas": []
+        },
+        {
+          "area_name": "face",
+          "name": "Dark circles",
+          "tech_name": "dark_circles",
+          "value": 92,
+          "score_range": [
+            "0-49",
+            "50-79",
+            "80-100"
+          ],
+          "severity": "Good",
+          "severity_list": [
+            "Needs Attention",
+            "Average",
+            "Good"
+          ],
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/dark circle.jpg",
+          "description": "The under-eye area matches your overall skin tone, with no visible discoloration. It appears bright and well-rested.",
+          "analyses": "Estimates periorbital hyperpigmentation causing a more fatigued appearance, blue (vascular with a bluish/greyish tint) or pigmented (brown tint, darker than skin tone).",
+          "sub_areas": []
+        },
+        {
+          "area_name": "face",
+          "name": "Eye_bags",
+          "tech_name": "eye_bags",
+          "value": 97,
+          "score_range": [
+            "0-49",
+            "50-79",
+            "80-100"
+          ],
+          "severity": "Good",
+          "severity_list": [
+            "Needs Attention",
+            "Average",
+            "Good"
+          ],
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/eyebag.jpg",
+          "description": "The under-eye area looks smooth and refreshed, with no visible puffiness. This reflects good skin health and hydration in this delicate zone.",
+          "analyses": "Estimates deformity of the orbital fat and responsive change in the topography of the skin along the lacrimal groove line",
+          "sub_areas": []
+        },
+        {
+          "area_name": "face",
+          "name": "Acne",
+          "tech_name": "acne",
+          "value": 100,
+          "score_range": [
+            "0-49",
+            "50-89",
+            "90-100"
+          ],
+          "severity": "Good",
+          "severity_list": [
+            "Needs Attention",
+            "Average",
+            "Good"
+          ],
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/acne.jpg",
+          "description": "You have little to no visible acne, which is great. Keeping your skin clean and hydrated will help maintain this clarity.",
+          "analyses": "Estimates the presence and severity of visible acne spots, such as whiteheads and inflamed pimples accompanied by redness.",
+          "sub_areas": []
+        },
+        {
+          "area_name": "face",
+          "name": "Pores",
+          "tech_name": "pores",
+          "value": 100,
+          "score_range": [
+            "0-49",
+            "50-89",
+            "90-100"
+          ],
+          "severity": "Good",
+          "severity_list": [
+            "Needs Attention",
+            "Average",
+            "Good"
+          ],
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/pores.jpg",
+          "description": "Your pores are barely visible, and your skin appears smooth and even. This indicates well-maintained and balanced skin.",
+          "analyses": "Estimates the visible presence and density of pores on: forehead, right cheek, left cheek, and nose areas",
+          "sub_areas": []
+        },
+        {
+          "area_name": "face",
+          "name": "Whiteheads",
+          "tech_name": "whiteheads",
+          "value": 100,
+          "score_range": [
+            "0-49",
+            "50-89",
+            "90-100"
+          ],
+          "severity": "Good",
+          "severity_list": [
+            "Needs Attention",
+            "Average",
+            "Good"
+          ],
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/whitehead.jpg",
+          "description": "You have little to no visible whiteheads. Keep your pores clean with regular cleansing and occasional exfoliation to maintain this clarity.",
+          "analyses": "Estimates the presence and severity of visible acne spots, such as whiteheads and inflamed pimples accompanied by redness.",
+          "sub_areas": []
+        },
+        {
+          "area_name": "face",
+          "name": "Wrinkles",
+          "tech_name": "wrinkles",
+          "value": 100,
+          "score_range": [
+            "0-49",
+            "50-79",
+            "80-100"
+          ],
+          "severity": "Good",
+          "severity_list": [
+            "Needs Attention",
+            "Average",
+            "Good"
+          ],
+          "image": "https://delivery.pixelbin.io/predictions/outputs/1y/kurenai/generate/skinAnalysisInt--generate--019b033e-276b-700d-9e1b-a8fe645b3ae6/wrinkle.jpg",
+          "description": "Your skin looks smooth and firm, with minimal fine lines. It’s showing excellent elasticity and resilience—perfect for your age.",
+          "analyses": "Estimates visible presence and severity of lines (wrinkles) caused by the loss of natural moisture and elasticity of the skin, including the multiple fine and deep wrinkles, downward shifts of nasolabial folds, marionette folds, and jowls",
+          "sub_areas": []
+        }
+      ]
+    }
+  }
+}

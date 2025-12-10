@@ -54,7 +54,8 @@ if not PIXELBIN_ACCESS_TOKEN:
 # Порядок попыток подключения к API для детекции
 # Топовые платные модели
 DETECTION_FALLBACKS = [
-    {"provider": "openrouter", "model": "openai/gpt-4o"},  # GPT-4o - лучшая для медицинского анализа
+    {"provider": "openrouter", "model": "google/gemini-2.5-flash"},  # Gemini 2.5 Flash - поддержка bounding boxes
+    {"provider": "openrouter", "model": "openai/gpt-4o"},  # GPT-4o Vision - поддержка координат
     {"provider": "openrouter", "model": "anthropic/claude-3.5-sonnet"},  # Claude 3.5 Sonnet - баланс качества и стоимости
     {"provider": "openrouter", "model": "google/gemini-1.5-pro"},  # Gemini 1.5 Pro - сильные возможности обработки изображений
     # Бесплатные и бюджетные варианты
@@ -66,7 +67,7 @@ DETECTION_FALLBACKS = [
 ]
 
 # Настройки моделей по умолчанию
-DEFAULT_VISION_MODEL = "google/gemini-2.0-flash-001"  # Для детекции
+DEFAULT_VISION_MODEL = "google/gemini-2.5-flash"  # Для детекции (поддерживает bounding boxes)
 DEFAULT_TEXT_MODEL = "anthropic/claude-3.5-sonnet"  # Для генерации отчёта
 
 DEFAULT_CONFIG = {
@@ -267,7 +268,41 @@ def analyze_image_with_openrouter(image_base64: str, model: str, temperature: fl
             "X-Title": "Skin Analyzer"
         }
         
-        prompt = """Ты специалист по заболеваниям и дефектам кожи. Проанализируй это изображение лица и определи следующие параметры состояния кожи:
+        # Определяем, поддерживает ли модель bounding boxes
+        supports_bbox = model in ["google/gemini-2.5-flash", "openai/gpt-4o"]
+        
+        if supports_bbox:
+            prompt = """Ты специалист по заболеваниям и дефектам кожи. Проанализируй это изображение лица и определи следующие параметры состояния кожи:
+
+1. acne_score (0-100) - уровень акне
+2. pigmentation_score (0-100) - уровень пигментации (ВАЖНО: пигментные пятна - это плоские участки изменённого цвета кожи, НЕ путай их с папилломами - выпуклыми образованиями)
+3. pores_size (0-100) - размер пор
+4. wrinkles_grade (0-100) - уровень морщин
+5. skin_tone (0-100) - тон кожи
+6. texture_score (0-100) - текстура кожи
+7. moisture_level (0-100) - уровень увлажненности
+8. oiliness (0-100) - жирность кожи
+
+Верни результат в формате JSON с этими полями. Для каждого обнаруженного дефекта (акне, пигментация, морщины) укажи координаты bounding box в формате [y_min, x_min, y_max, x_max], нормализованные к 0-1000. Для пигментации и веснушек укажи координаты каждой точки. Для морщин укажи координаты каждой морщины по её форме.
+
+Формат ответа:
+{
+  "acne_score": число,
+  "pigmentation_score": число,
+  "pores_size": число,
+  "wrinkles_grade": число,
+  "skin_tone": число,
+  "texture_score": число,
+  "moisture_level": число,
+  "oiliness": число,
+  "bounding_boxes": {
+    "acne": [[y_min, x_min, y_max, x_max], ...],
+    "pigmentation": [[y_min, x_min, y_max, x_max], ...],
+    "wrinkles": [[y_min, x_min, y_max, x_max], ...]
+  }
+}"""
+        else:
+            prompt = """Ты специалист по заболеваниям и дефектам кожи. Проанализируй это изображение лица и определи следующие параметры состояния кожи:
 
 1. acne_score (0-100) - уровень акне
 2. pigmentation_score (0-100) - уровень пигментации (ВАЖНО: пигментные пятна - это плоские участки изменённого цвета кожи, НЕ путай их с папилломами - выпуклыми образованиями)
@@ -300,8 +335,12 @@ def analyze_image_with_openrouter(image_base64: str, model: str, temperature: fl
                 }
             ],
             "temperature": temperature,
-            "max_tokens": max_tokens
+            "max_tokens": max_tokens * 2 if supports_bbox else max_tokens  # Больше токенов для координат
         }
+        
+        # Для Gemini 2.5 Flash добавляем response_format
+        if model == "google/gemini-2.5-flash":
+            payload["response_format"] = {"type": "json_object"}
         
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         
@@ -328,6 +367,10 @@ def analyze_image_with_openrouter(image_base64: str, model: str, temperature: fl
                 skin_data = parse_skin_analysis_from_text(content)
         except:
             skin_data = parse_skin_analysis_from_text(content)
+        
+        # Сохраняем bounding boxes, если они есть
+        if "bounding_boxes" in skin_data:
+            skin_data["_bounding_boxes"] = skin_data.pop("bounding_boxes")
         
         return skin_data
         
@@ -565,9 +608,30 @@ def parse_report_locations(report_text: str) -> Dict[str, List[str]]:
     return locations
 
 
+def convert_bbox_to_position(bbox: List[float], image_width: int = 1000, image_height: int = 1000) -> Dict:
+    """Конвертирует bounding box [y_min, x_min, y_max, x_max] в позицию для маркера"""
+    y_min, x_min, y_max, x_max = bbox
+    
+    # Нормализуем координаты к процентам (0-100)
+    x_center = ((x_min + x_max) / 2) / 10  # 0-1000 -> 0-100
+    y_center = ((y_min + y_max) / 2) / 10
+    width = (x_max - x_min) / 10
+    height = (y_max - y_min) / 10
+    
+    return {
+        'x': x_center,
+        'y': y_center,
+        'width': width,
+        'height': height
+    }
+
+
 def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dict:
     """Генерирует эвристический анализ на основе данных OpenRouter и текстового отчёта"""
     concerns = []
+    
+    # Получаем bounding boxes, если они есть
+    bounding_boxes = skin_data.get('_bounding_boxes', {})
     
     # Парсим локализацию из отчёта, если он есть
     report_locations = {}
@@ -576,23 +640,51 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
     
     # Определяем проблемы на основе значений с сегментацией
     
-    # Определяем проблемы на основе значений с сегментацией
+    # Акне
     if skin_data.get('acne_score', 0) > 30:
-        position = segment_face_area('acne', skin_data.get('acne_score', 0))
-        concerns.append({
-            'name': 'Акне',
-            'tech_name': 'acne',
-            'value': skin_data.get('acne_score', 0),
-            'severity': 'Needs Attention' if skin_data.get('acne_score', 0) > 60 else 'Average',
-            'description': f'Обнаружены признаки акне. Рекомендуется консультация дерматолога.',
-            'area': 'face',
-            'position': position
-        })
+        if 'acne' in bounding_boxes and bounding_boxes['acne']:
+            # Используем координаты из bounding boxes
+            for bbox in bounding_boxes['acne']:
+                position = convert_bbox_to_position(bbox)
+                concerns.append({
+                    'name': 'Акне',
+                    'tech_name': 'acne',
+                    'value': skin_data.get('acne_score', 0),
+                    'severity': 'Needs Attention' if skin_data.get('acne_score', 0) > 60 else 'Average',
+                    'description': f'Обнаружены признаки акне. Рекомендуется консультация дерматолога.',
+                    'area': 'face',
+                    'position': {**position, 'type': 'point'}
+                })
+        else:
+            position = segment_face_area('acne', skin_data.get('acne_score', 0))
+            concerns.append({
+                'name': 'Акне',
+                'tech_name': 'acne',
+                'value': skin_data.get('acne_score', 0),
+                'severity': 'Needs Attention' if skin_data.get('acne_score', 0) > 60 else 'Average',
+                'description': f'Обнаружены признаки акне. Рекомендуется консультация дерматолога.',
+                'area': 'face',
+                'position': position
+            })
     
+    # Пигментация - теперь отображается как точки
     if skin_data.get('pigmentation_score', 0) > 40:
-        # Пигментация всегда отображается как область (пятна)
-        if 'pigmentation' in report_locations and ('щёки' in str(report_locations['pigmentation']) or 'щеки' in str(report_locations['pigmentation'])):
-            # Создаём области на обеих щеках
+        if 'pigmentation' in bounding_boxes and bounding_boxes['pigmentation']:
+            # Используем координаты из bounding boxes - каждая точка отдельно
+            for bbox in bounding_boxes['pigmentation']:
+                position = convert_bbox_to_position(bbox)
+                concerns.append({
+                    'name': 'Пигментация',
+                    'tech_name': 'pigmentation',
+                    'value': skin_data.get('pigmentation_score', 0),
+                    'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
+                    'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
+                    'area': 'face',
+                    'position': {**position, 'type': 'point', 'marker_type': 'dot'},
+                    'is_dot': True  # Флаг для отображения как точки
+                })
+        elif 'pigmentation' in report_locations and ('щёки' in str(report_locations['pigmentation']) or 'щеки' in str(report_locations['pigmentation'])):
+            # Создаём точки на обеих щеках
             concerns.append({
                 'name': 'Пигментация',
                 'tech_name': 'pigmentation',
@@ -600,8 +692,8 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                 'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
                 'description': f'Замечены участки пигментации на щеках. Используйте солнцезащитный крем.',
                 'area': 'face',
-                'position': {'x': 25, 'y': 45, 'width': 20, 'height': 25, 'zone': 'left_cheek', 'type': 'area', 'shape': 'ellipse'},
-                'is_area': True
+                'position': {'x': 25, 'y': 45, 'zone': 'left_cheek', 'type': 'point', 'marker_type': 'dot'},
+                'is_dot': True
             })
             concerns.append({
                 'name': 'Пигментация',
@@ -610,8 +702,8 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                 'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
                 'description': f'Замечены участки пигментации на щеках. Используйте солнцезащитный крем.',
                 'area': 'face',
-                'position': {'x': 75, 'y': 45, 'width': 20, 'height': 25, 'zone': 'right_cheek', 'type': 'area', 'shape': 'ellipse'},
-                'is_area': True
+                'position': {'x': 75, 'y': 45, 'zone': 'right_cheek', 'type': 'point', 'marker_type': 'dot'},
+                'is_dot': True
             })
         else:
             position = segment_face_area('pigmentation', skin_data.get('pigmentation_score', 0))
@@ -622,8 +714,8 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                 'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
                 'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
                 'area': 'face',
-                'position': {**position, 'type': 'area', 'shape': position.get('shape', 'ellipse')},
-                'is_area': True
+                'position': {**position, 'type': 'point', 'marker_type': 'dot'},
+                'is_dot': True
             })
     
     if skin_data.get('pores_size', 0) > 50:
@@ -639,10 +731,23 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
         })
     
     if skin_data.get('wrinkles_grade', 0) > 40:
-        # Морщины всегда отображаются как области
-        position = segment_face_area('wrinkles', skin_data.get('wrinkles_grade', 0))
-        # Если в отчёте указаны конкретные области, используем их
-        if 'wrinkles' in report_locations:
+        # Морщины отображаются по их формам (используя bounding boxes)
+        if 'wrinkles' in bounding_boxes and bounding_boxes['wrinkles']:
+            # Используем координаты из bounding boxes - каждая морщина отдельно
+            for bbox in bounding_boxes['wrinkles']:
+                position = convert_bbox_to_position(bbox)
+                # Морщины отображаются как области, повторяющие их форму
+                concerns.append({
+                    'name': 'Морщины',
+                    'tech_name': 'wrinkles',
+                    'value': skin_data.get('wrinkles_grade', 0),
+                    'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
+                    'description': f'Замечены морщины. Увлажнение и защита от солнца помогут.',
+                    'area': 'face',
+                    'position': {**position, 'type': 'area', 'shape': 'wrinkle', 'is_wrinkle': True},
+                    'is_area': True
+                })
+        elif 'wrinkles' in report_locations:
             locations = report_locations['wrinkles']
             if 'периорбитальная' in str(locations) or 'вокруг глаз' in str(locations):
                 # Область вокруг глаз - эллипс
@@ -681,6 +786,7 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                 })
         else:
             # По умолчанию создаём области для морщин с эллиптической формой
+            position = segment_face_area('wrinkles', skin_data.get('wrinkles_grade', 0))
             concerns.append({
                 'name': 'Морщины',
                 'tech_name': 'wrinkles',

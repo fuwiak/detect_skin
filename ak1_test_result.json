@@ -1,0 +1,13 @@
+{
+  "input": {
+    "image": "https://delivery.pixelbin.io/predictions/inputs/skinAnalysisInt/generate/019b0244-49c7-7779-b30a-acbc0ae01453/image/0.jpeg"
+  },
+  "status": "ACCEPTED",
+  "urls": {
+    "get": "https://api.pixelbin.io/service/platform/transformation/v1.0/predictions/skinAnalysisInt--generate--019b0244-49c7-7779-b30a-acbc0ae01453"
+  },
+  "orgId": 14208987,
+  "retention": "30d",
+  "createdAt": "2025-12-09T08:39:48.423Z",
+  "_id": "skinAnalysisInt--generate--019b0244-49c7-7779-b30a-acbc0ae01453"
+}
