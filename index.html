@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Анализ кожи - Detect Skin</title>
+    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
         
@@ -870,7 +871,7 @@
             }
         }
 
-        function handleFile(file) {
+        async function handleFile(file) {
             // Проверяем тип файла - поддерживаем изображения и HEIC/HEIF
             const isImage = file.type.startsWith('image/');
             const isHeic = file.name.toLowerCase().endsWith('.heic') || 
@@ -884,9 +885,45 @@
                 return;
             }
             
-            // Для HEIC файлов может потребоваться специальная обработка
-            if (isHeic && !isImage) {
-                console.log('Обнаружен HEIC файл:', file.name);
+            // Для HEIC файлов конвертируем в JPEG для preview
+            if (isHeic && !isImage && typeof heic2any !== 'undefined') {
+                try {
+                    console.log('Конвертация HEIC файла для preview:', file.name);
+                    // Показываем индикатор загрузки
+                    const loadingText = document.getElementById('loadingText');
+                    const originalText = loadingText.textContent;
+                    loadingText.textContent = 'КОНВЕРТАЦИЯ HEIC...';
+                    document.getElementById('loading').classList.add('show');
+                    
+                    // Конвертируем HEIC в JPEG
+                    const convertedBlob = await heic2any({
+                        blob: file,
+                        toType: 'image/jpeg',
+                        quality: 0.9
+                    });
+                    
+                    // heic2any может вернуть массив, берем первый элемент
+                    const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+                    
+                    // Создаем новый File объект из конвертированного blob
+                    const convertedFile = new File([blob], file.name.replace(/\.(heic|heif)$/i, '.jpg'), {
+                        type: 'image/jpeg',
+                        lastModified: file.lastModified
+                    });
+                    
+                    // Используем конвертированный файл
+                    file = convertedFile;
+                    console.log('HEIC успешно сконвертирован в JPEG');
+                    
+                    // Скрываем индикатор загрузки
+                    document.getElementById('loading').classList.remove('show');
+                    loadingText.textContent = originalText;
+                } catch (error) {
+                    console.error('Ошибка при конвертации HEIC:', error);
+                    showError('Ошибка при конвертации HEIC файла. Файл будет отправлен на сервер для конвертации.');
+                    document.getElementById('loading').classList.remove('show');
+                    // Продолжаем с оригинальным файлом
+                }
             }
 
             const reader = new FileReader();
@@ -897,6 +934,10 @@
                 previewSection.style.display = 'block';
                 document.getElementById('resultsSection').classList.remove('show');
                 document.getElementById('errorMessage').classList.remove('show');
+            };
+            reader.onerror = (error) => {
+                console.error('Ошибка при чтении файла:', error);
+                showError('Ошибка при чтении файла');
             };
             reader.readAsDataURL(file);
         }
