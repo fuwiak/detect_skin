@@ -515,6 +515,15 @@
             transition: all 0.2s;
         }
 
+        .heuristic-marker.area-marker.ellipse {
+            border-radius: 50%;
+        }
+
+        .heuristic-marker.area-marker.polygon {
+            border-radius: 20% 30% 25% 35%;
+            clip-path: polygon(20% 0%, 80% 0%, 100% 20%, 100% 80%, 80% 100%, 20% 100%, 0% 80%, 0% 20%);
+        }
+
         .heuristic-marker.area-marker:hover {
             background: rgba(255, 0, 255, 0.5);
             border-color: #ff00ff;
@@ -1533,12 +1542,26 @@
                         const isArea = concern.is_area || (concern.position && concern.position.type === 'area');
                         
                         if (isArea) {
-                            // Создаём область (пятно) для морщин и пигментации
-                            marker.className = 'heuristic-marker area-marker';
+                            // Создаём область (пятно) для морщин и пигментации с естественной формой
+                            const shape = concern.position.shape || 'ellipse';
+                            marker.className = `heuristic-marker area-marker ${shape}`;
                             marker.style.left = `${concern.position.x - (concern.position.width || 0) / 2}%`;
                             marker.style.top = `${concern.position.y - (concern.position.height || 0) / 2}%`;
                             marker.style.width = `${concern.position.width || 20}%`;
                             marker.style.height = `${concern.position.height || 20}%`;
+                            
+                            // Для эллипсов используем border-radius, для многоугольников - clip-path
+                            if (shape === 'ellipse') {
+                                marker.style.borderRadius = '50%';
+                            } else if (shape === 'polygon') {
+                                // Создаём органичную форму многоугольника, похожую на контуры лица
+                                const points = [
+                                    '20% 10%', '80% 15%', '95% 30%', '100% 60%',
+                                    '90% 85%', '70% 95%', '30% 90%', '10% 70%',
+                                    '5% 40%', '10% 20%'
+                                ].join(', ');
+                                marker.style.clipPath = `polygon(${points})`;
+                            }
                         } else {
                             // Создаём пятиугольник для других проблем
                             marker.className = 'heuristic-marker point-marker';

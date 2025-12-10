@@ -466,16 +466,18 @@ def convert_heic_to_jpeg(image_bytes: bytes) -> bytes:
 
 
 def segment_face_area(concern_type: str, value: float) -> Dict:
-    """Простой алгоритм сегментации лица для определения зон проблем"""
-    # Базовые зоны лица в процентах от размера изображения
+    """Простой алгоритм сегментации лица для определения зон проблем с естественными формами"""
+    # Базовые зоны лица в процентах от размера изображения с естественными формами
     zones = {
-        'forehead': {'x': 50, 'y': 20, 'width': 40, 'height': 15},  # Лоб
-        'left_cheek': {'x': 25, 'y': 45, 'width': 20, 'height': 25},  # Левая щека
-        'right_cheek': {'x': 75, 'y': 45, 'width': 20, 'height': 25},  # Правая щека
-        'nose': {'x': 50, 'y': 50, 'width': 15, 'height': 20},  # Нос
-        'chin': {'x': 50, 'y': 75, 'width': 25, 'height': 15},  # Подбородок
-        't_zone': {'x': 50, 'y': 40, 'width': 30, 'height': 30},  # Т-зона
-        'u_zone': {'x': 50, 'y': 55, 'width': 50, 'height': 30},  # U-зона
+        'forehead': {'x': 50, 'y': 20, 'width': 40, 'height': 15, 'shape': 'ellipse'},  # Лоб - эллипс
+        'left_cheek': {'x': 25, 'y': 45, 'width': 20, 'height': 25, 'shape': 'ellipse'},  # Левая щека - эллипс
+        'right_cheek': {'x': 75, 'y': 45, 'width': 20, 'height': 25, 'shape': 'ellipse'},  # Правая щека - эллипс
+        'nose': {'x': 50, 'y': 50, 'width': 15, 'height': 20, 'shape': 'ellipse'},  # Нос - эллипс
+        'chin': {'x': 50, 'y': 75, 'width': 25, 'height': 15, 'shape': 'ellipse'},  # Подбородок - эллипс
+        't_zone': {'x': 50, 'y': 40, 'width': 30, 'height': 30, 'shape': 'polygon'},  # Т-зона - многоугольник
+        'u_zone': {'x': 50, 'y': 55, 'width': 50, 'height': 30, 'shape': 'polygon'},  # U-зона - многоугольник
+        'periorbital': {'x': 50, 'y': 35, 'width': 35, 'height': 20, 'shape': 'ellipse'},  # Периорбитальная - эллипс
+        'perioral': {'x': 50, 'y': 65, 'width': 25, 'height': 15, 'shape': 'ellipse'},  # Периоральная - эллипс
     }
     
     # Маппинг типов проблем на зоны лица
@@ -643,7 +645,7 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
         if 'wrinkles' in report_locations:
             locations = report_locations['wrinkles']
             if 'периорбитальная' in str(locations) or 'вокруг глаз' in str(locations):
-                # Область вокруг глаз
+                # Область вокруг глаз - эллипс
                 concerns.append({
                     'name': 'Морщины (периорбитальная область)',
                     'tech_name': 'wrinkles',
@@ -651,11 +653,11 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                     'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
                     'description': f'Замечены морщины вокруг глаз. Увлажнение и защита от солнца помогут.',
                     'area': 'face',
-                    'position': {'x': 50, 'y': 35, 'width': 35, 'height': 20, 'zone': 'periorbital', 'type': 'area'},
+                    'position': {'x': 50, 'y': 35, 'width': 35, 'height': 20, 'zone': 'periorbital', 'type': 'area', 'shape': 'ellipse'},
                     'is_area': True
                 })
             if 'периоральная' in str(locations) or 'вокруг рта' in str(locations):
-                # Область вокруг рта
+                # Область вокруг рта - эллипс
                 concerns.append({
                     'name': 'Морщины (периоральная область)',
                     'tech_name': 'wrinkles',
@@ -663,7 +665,7 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                     'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
                     'description': f'Замечены морщины вокруг рта. Увлажнение и защита от солнца помогут.',
                     'area': 'face',
-                    'position': {'x': 50, 'y': 65, 'width': 25, 'height': 15, 'zone': 'perioral', 'type': 'area'},
+                    'position': {'x': 50, 'y': 65, 'width': 25, 'height': 15, 'zone': 'perioral', 'type': 'area', 'shape': 'ellipse'},
                     'is_area': True
                 })
             if 'лоб' in str(locations) or 'forehead' in str(locations):
@@ -674,11 +676,11 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                     'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
                     'description': f'Замечены морщины на лбу. Увлажнение и защита от солнца помогут.',
                     'area': 'face',
-                    'position': {'x': 50, 'y': 20, 'width': 40, 'height': 15, 'zone': 'forehead', 'type': 'area'},
+                    'position': {'x': 50, 'y': 20, 'width': 40, 'height': 15, 'zone': 'forehead', 'type': 'area', 'shape': 'ellipse'},
                     'is_area': True
                 })
         else:
-            # По умолчанию создаём области для морщин
+            # По умолчанию создаём области для морщин с эллиптической формой
             concerns.append({
                 'name': 'Морщины',
                 'tech_name': 'wrinkles',
@@ -686,7 +688,7 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                 'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
                 'description': f'Замечены признаки старения. Увлажнение и защита от солнца помогут.',
                 'area': 'face',
-                'position': {**position, 'type': 'area'},
+                'position': {**position, 'type': 'area', 'shape': position.get('shape', 'ellipse')},
                 'is_area': True
             })
     
