@@ -115,14 +115,43 @@ class PixelBinService:
             if not response.ok:
                 error_text = response.text[:500]
                 logger.warning(f"Pixelbin API ошибка: {response.status_code} - {error_text}")
-                # Если это ошибка валидации (400), возвращаем специальный флаг
-                if response.status_code == 400:
-                    try:
-                        error_data = response.json()
-                        if 'validation' in error_text.lower() or 'JR-0400' in error_text:
+                
+                # Обрабатываем различные типы ошибок
+                try:
+                    error_data = response.json()
+                    error_code = error_data.get('errorCode', '')
+                    error_type = error_data.get('exception', '')
+                    
+                    # 400 - Validation Error
+                    if response.status_code == 400:
+                        if 'validation' in error_text.lower() or 'JR-0400' in error_code:
                             return {"error": "validation_failed", "status_code": 400, "message": error_data}
-                    except:
-                        pass
+                    
+                    # 403 - Usage Limit Exceeded
+                    elif response.status_code == 403:
+                        if 'Usage Limit' in error_text or 'JR-1000' in error_code or 'UsageBlockedError' in error_type:
+                            logger.warning("Pixelbin: достигнут лимит использования, используем эвристики")
+                            return {"error": "usage_limit_exceeded", "status_code": 403, "message": error_data}
+                    
+                    # 429 - Rate Limit
+                    elif response.status_code == 429:
+                        logger.warning("Pixelbin: превышен лимит запросов, используем эвристики")
+                        return {"error": "rate_limit_exceeded", "status_code": 429, "message": error_data}
+                    
+                    # 500+ - Server Error
+                    elif response.status_code >= 500:
+                        logger.warning("Pixelbin: ошибка сервера, используем эвристики")
+                        return {"error": "server_error", "status_code": response.status_code, "message": error_data}
+                    
+                    # Другие ошибки
+                    else:
+                        logger.warning(f"Pixelbin: неизвестная ошибка {response.status_code}, используем эвристики")
+                        return {"error": "api_error", "status_code": response.status_code, "message": error_data}
+                        
+                except:
+                    # Если не удалось распарсить JSON, возвращаем общую ошибку
+                    return {"error": "api_error", "status_code": response.status_code, "message": error_text}
+                
                 return None
             
             result = response.json()
@@ -1008,12 +1037,30 @@ def analyze_skin():
             # Отправляем в Pixelbin API
             pixelbin_result = PixelBinService.upload_image(image_bytes, filename)
             
-            # Проверяем, была ли ошибка валидации
+            # Проверяем различные типы ошибок Pixelbin
             use_heuristics = False
-            if pixelbin_result and pixelbin_result.get('error') == 'validation_failed':
-                logger.warning("Pixelbin вернул ошибку валидации, используем эвристики")
-                use_heuristics = True
-                pixelbin_result = None
+            if pixelbin_result and pixelbin_result.get('error'):
+                error_type = pixelbin_result.get('error')
+                status_code = pixelbin_result.get('status_code', 0)
+                
+                if error_type == 'validation_failed':
+                    logger.warning("Pixelbin вернул ошибку валидации, используем эвристики")
+                    use_heuristics = True
+                elif error_type == 'usage_limit_exceeded':
+                    logger.warning("Pixelbin: достигнут лимит использования API, используем эвристики")
+                    use_heuristics = True
+                elif error_type == 'rate_limit_exceeded':
+                    logger.warning("Pixelbin: превышен лимит запросов, используем эвристики")
+                    use_heuristics = True
+                elif error_type == 'server_error':
+                    logger.warning(f"Pixelbin: ошибка сервера ({status_code}), используем эвристики")
+                    use_heuristics = True
+                elif error_type == 'api_error':
+                    logger.warning(f"Pixelbin: ошибка API ({status_code}), используем эвристики")
+                    use_heuristics = True
+                
+                if use_heuristics:
+                    pixelbin_result = None
             
             if pixelbin_result and '_id' in pixelbin_result:
                 job_id = pixelbin_result['_id']
