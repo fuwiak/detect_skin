@@ -464,6 +464,69 @@
             75% { transform: translateX(5px); }
         }
 
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background: #1a1a2e;
+            border: 4px solid #ff00ff;
+            border-radius: 0;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 
+                0 0 30px rgba(255,0,255,0.7),
+                inset 0 0 30px rgba(255,0,255,0.2);
+            text-align: center;
+        }
+
+        .heuristic-markers {
+            position: relative;
+            display: inline-block;
+        }
+
+        .heuristic-marker {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: #ff0080;
+            border: 3px solid #00ffff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(255,0,128,0.8);
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+
+        .heuristic-marker:hover {
+            transform: translate(-50%, -50%) scale(1.2);
+            box-shadow: 0 0 20px rgba(255,0,128,1);
+        }
+
+        .heuristic-tooltip {
+            position: absolute;
+            background: #1a1a2e;
+            border: 2px solid #00ffff;
+            padding: 10px;
+            font-size: 0.5em;
+            color: #00ffff;
+            white-space: nowrap;
+            z-index: 20;
+            pointer-events: none;
+            box-shadow: 4px 4px 0 #000;
+        }
+
         .info-text {
             color: #00ffff;
             font-size: 0.5em;
@@ -683,6 +746,21 @@
             </div>
 
             <div class="error-message" id="errorMessage"></div>
+
+            <!-- Модальное окно для уведомления об эвристике -->
+            <div class="modal-overlay" id="heuristicModal" style="display: none;">
+                <div class="modal-content">
+                    <h3 style="color: #ff00ff; margin-bottom: 15px; text-align: center;">⚠️ ЭВРИСТИЧЕСКИЙ АНАЛИЗ</h3>
+                    <p style="color: #00ffff; font-size: 0.6em; line-height: 1.6; margin-bottom: 20px; text-align: center;">
+                        Pixelbin API вернул ошибку валидации.<br>
+                        Используется эвристический анализ на основе данных OpenRouter.<br>
+                        Результаты могут быть менее точными.
+                    </p>
+                    <button class="upload-btn" onclick="closeHeuristicModal()" style="width: 100%;">
+                        ПОНЯТНО
+                    </button>
+                </div>
+            </div>
 
             <div class="results-section" id="resultsSection">
                 <div class="results-grid" id="resultsGrid"></div>
@@ -1213,11 +1291,23 @@
                 if (data.data) {
                     displayResults(data.data);
                     
-                    // Показываем галерею изображений из Pixelbin, если есть
-                    if (data.pixelbin_images && data.pixelbin_images.length > 0) {
-                        displayImageGallery(data.pixelbin_images);
+                    // Проверяем, используется ли эвристика
+                    if (data.use_heuristics) {
+                        showHeuristicModal();
+                        // Отображаем эвристические данные на изображении
+                        if (data.pixelbin_images && data.pixelbin_images.length > 0) {
+                            const heuristicItem = data.pixelbin_images.find(img => img.type === 'heuristic');
+                            if (heuristicItem && heuristicItem.heuristic_data) {
+                                displayHeuristicMarkers(heuristicItem.heuristic_data);
+                            }
+                        }
                     } else {
-                        document.getElementById('imagesGallery').style.display = 'none';
+                        // Показываем галерею изображений из Pixelbin, если есть
+                        if (data.pixelbin_images && data.pixelbin_images.length > 0) {
+                            displayImageGallery(data.pixelbin_images);
+                        } else {
+                            document.getElementById('imagesGallery').style.display = 'none';
+                        }
                     }
                     
                     // Показываем текстовый отчёт если есть
@@ -1370,6 +1460,82 @@
             });
             
             gallerySection.style.display = 'block';
+        }
+
+        function showHeuristicModal() {
+            document.getElementById('heuristicModal').style.display = 'flex';
+        }
+
+        function closeHeuristicModal() {
+            document.getElementById('heuristicModal').style.display = 'none';
+        }
+
+        function displayHeuristicMarkers(heuristicData) {
+            const previewImage = document.getElementById('previewImage');
+            if (!previewImage || !previewImage.src) return;
+
+            // Создаём контейнер для маркеров
+            const previewSection = document.getElementById('previewSection');
+            let markersContainer = document.getElementById('heuristicMarkersContainer');
+            
+            if (!markersContainer) {
+                markersContainer = document.createElement('div');
+                markersContainer.id = 'heuristicMarkersContainer';
+                markersContainer.className = 'heuristic-markers';
+                markersContainer.style.position = 'relative';
+                markersContainer.style.display = 'inline-block';
+                
+                // Обёртываем изображение
+                const parent = previewImage.parentNode;
+                parent.insertBefore(markersContainer, previewImage);
+                markersContainer.appendChild(previewImage);
+            }
+
+            // Очищаем старые маркеры
+            const oldMarkers = markersContainer.querySelectorAll('.heuristic-marker');
+            oldMarkers.forEach(m => m.remove());
+
+            // Добавляем маркеры для каждой проблемы
+            if (heuristicData.concerns && heuristicData.concerns.length > 0) {
+                const addMarkers = function() {
+                    const imgWidth = previewImage.offsetWidth;
+                    const imgHeight = previewImage.offsetHeight;
+
+                    heuristicData.concerns.forEach((concern, index) => {
+                        const marker = document.createElement('div');
+                        marker.className = 'heuristic-marker';
+                        marker.title = `${concern.name}: ${concern.description}`;
+                        
+                        // Позиционируем маркер в процентах от размера изображения
+                        marker.style.left = `${concern.position.x}%`;
+                        marker.style.top = `${concern.position.y}%`;
+                        
+                        // Добавляем tooltip
+                        marker.addEventListener('mouseenter', function(e) {
+                            const tooltip = document.createElement('div');
+                            tooltip.className = 'heuristic-tooltip';
+                            tooltip.textContent = `${concern.name} (${concern.value})`;
+                            tooltip.style.left = '25px';
+                            tooltip.style.top = '25px';
+                            marker.appendChild(tooltip);
+                        });
+                        
+                        marker.addEventListener('mouseleave', function() {
+                            const tooltip = marker.querySelector('.heuristic-tooltip');
+                            if (tooltip) tooltip.remove();
+                        });
+                        
+                        markersContainer.appendChild(marker);
+                    });
+                };
+                
+                // Ждём загрузки изображения
+                if (previewImage.complete) {
+                    setTimeout(addMarkers, 100);
+                } else {
+                    previewImage.onload = addMarkers;
+                }
+            }
         }
 
         // Загружаем настройки при загрузке страницы

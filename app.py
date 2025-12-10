@@ -103,7 +103,16 @@ class PixelBinService:
             response = requests.post(url, headers=PIXELBIN_HEADERS, files=files, timeout=60)
             
             if not response.ok:
-                logger.warning(f"Pixelbin API ошибка: {response.status_code} - {response.text[:200]}")
+                error_text = response.text[:500]
+                logger.warning(f"Pixelbin API ошибка: {response.status_code} - {error_text}")
+                # Если это ошибка валидации (400), возвращаем специальный флаг
+                if response.status_code == 400:
+                    try:
+                        error_data = response.json()
+                        if 'validation' in error_text.lower() or 'JR-0400' in error_text:
+                            return {"error": "validation_failed", "status_code": 400, "message": error_data}
+                    except:
+                        pass
                 return None
             
             result = response.json()
@@ -456,6 +465,89 @@ def convert_heic_to_jpeg(image_bytes: bytes) -> bytes:
         raise
 
 
+def generate_heuristic_analysis(skin_data: Dict) -> Dict:
+    """Генерирует эвристический анализ на основе данных OpenRouter"""
+    concerns = []
+    
+    # Определяем проблемы на основе значений
+    if skin_data.get('acne_score', 0) > 30:
+        concerns.append({
+            'name': 'Акне',
+            'tech_name': 'acne',
+            'value': skin_data.get('acne_score', 0),
+            'severity': 'Needs Attention' if skin_data.get('acne_score', 0) > 60 else 'Average',
+            'description': f'Обнаружены признаки акне. Рекомендуется консультация дерматолога.',
+            'area': 'face',
+            'position': {'x': 50, 'y': 40}  # Центр лица
+        })
+    
+    if skin_data.get('pigmentation_score', 0) > 40:
+        concerns.append({
+            'name': 'Пигментация',
+            'tech_name': 'pigmentation',
+            'value': skin_data.get('pigmentation_score', 0),
+            'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
+            'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
+            'area': 'face',
+            'position': {'x': 30, 'y': 35}  # Левая щека
+        })
+    
+    if skin_data.get('pores_size', 0) > 50:
+        concerns.append({
+            'name': 'Расширенные поры',
+            'tech_name': 'pores',
+            'value': skin_data.get('pores_size', 0),
+            'severity': 'Needs Attention' if skin_data.get('pores_size', 0) > 70 else 'Average',
+            'description': f'Поры требуют внимания. Рекомендуется регулярное очищение.',
+            'area': 'face',
+            'position': {'x': 50, 'y': 50}  # Т-зона
+        })
+    
+    if skin_data.get('wrinkles_grade', 0) > 40:
+        concerns.append({
+            'name': 'Морщины',
+            'tech_name': 'wrinkles',
+            'value': skin_data.get('wrinkles_grade', 0),
+            'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
+            'description': f'Замечены признаки старения. Увлажнение и защита от солнца помогут.',
+            'area': 'face',
+            'position': {'x': 50, 'y': 25}  # Лоб
+        })
+    
+    if skin_data.get('moisture_level', 0) < 50:
+        concerns.append({
+            'name': 'Недостаточное увлажнение',
+            'tech_name': 'hydration',
+            'value': skin_data.get('moisture_level', 0),
+            'severity': 'Needs Attention' if skin_data.get('moisture_level', 0) < 30 else 'Average',
+            'description': f'Кожа нуждается в дополнительном увлажнении.',
+            'area': 'face',
+            'position': {'x': 50, 'y': 45}  # Центр
+        })
+    
+    # Генерируем общий текст
+    total_score = sum([
+        skin_data.get('acne_score', 0),
+        skin_data.get('pigmentation_score', 0),
+        skin_data.get('pores_size', 0),
+        skin_data.get('wrinkles_grade', 0)
+    ]) / 4
+    
+    if total_score < 40:
+        summary = "Состояние кожи хорошее. Рекомендуется поддерживать текущий уход."
+    elif total_score < 60:
+        summary = "Состояние кожи удовлетворительное. Некоторые области требуют внимания."
+    else:
+        summary = "Обнаружены проблемы, требующие внимания. Рекомендуется консультация специалиста."
+    
+    return {
+        'concerns': concerns,
+        'summary': summary,
+        'total_skin_score': max(0, min(100, 100 - total_score)),
+        'skin_health': 'Good' if total_score < 40 else 'Average' if total_score < 60 else 'Needs Attention'
+    }
+
+
 def generate_fallback_report(skin_data: Dict) -> str:
     """Генерация простого отчёта без LLM"""
     report = "ОТЧЁТ О СОСТОЯНИИ КОЖИ\n\n"
@@ -596,6 +688,13 @@ def analyze_skin():
             # Отправляем в Pixelbin API
             pixelbin_result = PixelBinService.upload_image(image_bytes, filename)
             
+            # Проверяем, была ли ошибка валидации
+            use_heuristics = False
+            if pixelbin_result and pixelbin_result.get('error') == 'validation_failed':
+                logger.warning("Pixelbin вернул ошибку валидации, используем эвристики")
+                use_heuristics = True
+                pixelbin_result = None
+            
             if pixelbin_result and '_id' in pixelbin_result:
                 job_id = pixelbin_result['_id']
                 logger.info(f"Pixelbin: задача создана, job_id: {job_id}")
@@ -609,6 +708,16 @@ def analyze_skin():
                     logger.info(f"Pixelbin: получено {len(pixelbin_images)} изображений")
                 else:
                     logger.warning(f"Pixelbin: задача не завершена или завершилась с ошибкой")
+            elif use_heuristics:
+                # Используем эвристический анализ
+                logger.info("Использование эвристического анализа вместо Pixelbin")
+                heuristic_data = generate_heuristic_analysis(skin_data)
+                # Добавляем информацию об эвристике
+                pixelbin_images = [{
+                    'type': 'heuristic',
+                    'heuristic_data': heuristic_data,
+                    'message': 'Использован эвристический анализ'
+                }]
         except Exception as e:
             logger.warning(f"Ошибка при работе с Pixelbin API: {e}")
             # Не прерываем основной анализ, если Pixelbin не работает
@@ -623,7 +732,8 @@ def analyze_skin():
             "provider": used_provider,
             "model": used_model,
             "config": config,
-            "pixelbin_images": pixelbin_images  # Добавляем изображения из Pixelbin
+            "pixelbin_images": pixelbin_images,  # Добавляем изображения из Pixelbin
+            "use_heuristics": use_heuristics  # Флаг использования эвристики
         })
         
     except Exception as e:
