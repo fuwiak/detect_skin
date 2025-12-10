@@ -7,6 +7,7 @@ import base64
 import json
 import requests
 import time
+import io
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -16,6 +17,17 @@ import logging
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Импорт для работы с HEIC (после logger)
+try:
+    from PIL import Image
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HEIC_SUPPORT = True
+    logger.info("Поддержка HEIC включена")
+except ImportError:
+    HEIC_SUPPORT = False
+    logger.warning("pillow-heif не установлен, поддержка HEIC будет ограничена")
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -415,6 +427,35 @@ The report should be brief, concise and professional."""
     return generate_fallback_report(skin_data)
 
 
+def convert_heic_to_jpeg(image_bytes: bytes) -> bytes:
+    """Конвертирует HEIC/HEIF изображение в JPEG"""
+    if not HEIC_SUPPORT:
+        raise ValueError("Поддержка HEIC не доступна. Установите pillow-heif.")
+    
+    try:
+        # Открываем HEIC изображение
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Конвертируем в RGB (если нужно)
+        if image.mode in ('RGBA', 'LA', 'P'):
+            # Создаём белый фон для прозрачных изображений
+            rgb_image = Image.new('RGB', image.size, (255, 255, 255))
+            if image.mode == 'P':
+                image = image.convert('RGBA')
+            rgb_image.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+            image = rgb_image
+        elif image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Сохраняем в JPEG
+        output = io.BytesIO()
+        image.save(output, format='JPEG', quality=95)
+        return output.getvalue()
+    except Exception as e:
+        logger.error(f"Ошибка при конвертации HEIC: {e}")
+        raise
+
+
 def generate_fallback_report(skin_data: Dict) -> str:
     """Генерация простого отчёта без LLM"""
     report = "ОТЧЁТ О СОСТОЯНИИ КОЖИ\n\n"
@@ -445,9 +486,14 @@ def analyze_skin():
         if not image_base64:
             return jsonify({"error": "Изображение не предоставлено"}), 400
         
-        # Убираем префикс data:image если есть
+        # Убираем префикс data:image если есть и извлекаем MIME тип
+        mime_type = None
         if ',' in image_base64:
+            prefix = image_base64.split(',')[0]
             image_base64 = image_base64.split(',')[1]
+            # Извлекаем MIME тип из префикса
+            if 'data:' in prefix and ';' in prefix:
+                mime_type = prefix.split(';')[0].split(':')[1]
         
         # Получаем настройки из запроса или используем по умолчанию
         config = data.get('config', DEFAULT_CONFIG)
@@ -533,8 +579,22 @@ def analyze_skin():
             # Декодируем base64 изображение в bytes
             image_bytes = base64.b64decode(image_base64)
             
+            # Конвертируем HEIC в JPEG, если нужно
+            filename = "image.jpg"
+            if mime_type and mime_type in ['image/heic', 'image/heif']:
+                if HEIC_SUPPORT:
+                    try:
+                        logger.info("Конвертация HEIC в JPEG...")
+                        image_bytes = convert_heic_to_jpeg(image_bytes)
+                        logger.info("HEIC успешно сконвертирован в JPEG")
+                    except Exception as e:
+                        logger.warning(f"Не удалось сконвертировать HEIC: {e}")
+                        # Продолжаем с оригинальным файлом
+                else:
+                    logger.warning("HEIC файл получен, но поддержка HEIC не доступна")
+            
             # Отправляем в Pixelbin API
-            pixelbin_result = PixelBinService.upload_image(image_bytes, "image.jpg")
+            pixelbin_result = PixelBinService.upload_image(image_bytes, filename)
             
             if pixelbin_result and '_id' in pixelbin_result:
                 job_id = pixelbin_result['_id']

@@ -658,7 +658,7 @@
             <div class="upload-section" id="uploadSection">
                 <h2 id="uploadTitle">ЗАГРУЗИТЬ ФОТО</h2>
                 <p class="info-text" id="uploadInfo">ПЕРЕТАЩИТЕ ИЛИ НАЖМИТЕ КНОПКУ</p>
-                <input type="file" id="fileInput" accept="image/*">
+                <input type="file" id="fileInput" accept="image/*,.heic,.heif,image/heic,image/heif">
                 <div class="buttons-group">
                     <button class="upload-btn" onclick="document.getElementById('fileInput').click()" id="selectFileBtn">
                         ВЫБРАТЬ ФАЙЛ
@@ -871,9 +871,22 @@
         }
 
         function handleFile(file) {
-            if (!file.type.startsWith('image/')) {
+            // Проверяем тип файла - поддерживаем изображения и HEIC/HEIF
+            const isImage = file.type.startsWith('image/');
+            const isHeic = file.name.toLowerCase().endsWith('.heic') || 
+                          file.name.toLowerCase().endsWith('.heif') ||
+                          file.type === 'image/heic' || 
+                          file.type === 'image/heif' ||
+                          file.type === '';
+            
+            if (!isImage && !isHeic) {
                 showError(t('pleaseSelectImage'));
                 return;
+            }
+            
+            // Для HEIC файлов может потребоваться специальная обработка
+            if (isHeic && !isImage) {
+                console.log('Обнаружен HEIC файл:', file.name);
             }
 
             const reader = new FileReader();
