@@ -197,6 +197,40 @@ class PixelBinService:
                             logger.warning(f"Pixelbin: задача всё ещё обрабатывается после {max_attempts} попыток")
                             return result
                 
+                # Обрабатываем ошибки API
+                if not response.ok:
+                    error_text = response.text[:500]
+                    status_code = response.status_code
+                    
+                    # 403 - Usage Limit Exceeded
+                    if status_code == 403:
+                        logger.warning(f"Pixelbin: достигнут лимит использования при проверке статуса (403)")
+                        return {"error": "usage_limit_exceeded", "status": "FAILURE", "status_code": 403}
+                    
+                    # 429 - Rate Limit
+                    elif status_code == 429:
+                        logger.warning(f"Pixelbin: превышен лимит запросов при проверке статуса (429)")
+                        if attempt < max_attempts:
+                            time.sleep(delay * 2)  # Увеличиваем задержку
+                            continue
+                        return {"error": "rate_limit_exceeded", "status": "FAILURE", "status_code": 429}
+                    
+                    # 500+ - Server Error
+                    elif status_code >= 500:
+                        logger.warning(f"Pixelbin: ошибка сервера при проверке статуса ({status_code})")
+                        if attempt < max_attempts:
+                            time.sleep(delay)
+                            continue
+                        return {"error": "server_error", "status": "FAILURE", "status_code": status_code}
+                    
+                    # Другие ошибки
+                    else:
+                        logger.warning(f"Pixelbin: ошибка API при проверке статуса ({status_code}): {error_text}")
+                        if attempt < max_attempts:
+                            time.sleep(delay)
+                            continue
+                        return {"error": "api_error", "status": "FAILURE", "status_code": status_code}
+                
                 return result
             except Exception as e:
                 logger.warning(f"Ошибка при проверке статуса Pixelbin: {e}")
