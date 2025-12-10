@@ -6,6 +6,7 @@ import os
 import base64
 import json
 import requests
+import time
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -25,6 +26,14 @@ CORS(app)
 # Конфигурация API
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
+
+# Конфигурация Pixelbin API
+PIXELBIN_ACCESS_TOKEN = os.getenv("PIXELBIN_ACCESS_TOKEN", "c5e15df7-73a6-4796-ac07-b3b6a6ccfb97")
+PIXELBIN_BASE_URL = "https://api.pixelbin.io/service/platform/transformation/v1.0/predictions"
+PIXELBIN_BEARER_TOKEN = base64.b64encode(PIXELBIN_ACCESS_TOKEN.encode('utf-8')).decode('utf-8')
+PIXELBIN_HEADERS = {
+    "Authorization": f"Bearer {PIXELBIN_BEARER_TOKEN}",
+}
 
 # Настройки моделей по умолчанию
 # Порядок попыток подключения к API для детекции
@@ -53,6 +62,145 @@ DEFAULT_CONFIG = {
     "temperature": 0,  # Точность важнее креативности
     "max_tokens": 300  # Краткие и лаконичные ответы
 }
+
+
+class PixelBinService:
+    """Сервис для работы с Pixelbin API"""
+    
+    @staticmethod
+    def upload_image(image_data: bytes, filename: str = "image.jpg") -> Optional[Dict]:
+        """Загрузка изображения в Pixelbin API"""
+        try:
+            url = f"{PIXELBIN_BASE_URL}/skinAnalysisInt/generate"
+            
+            # Определяем MIME тип на основе расширения
+            mime_type = 'image/png' if filename.lower().endswith('.png') else 'image/jpeg'
+            
+            files = {
+                'input.image': (filename, image_data, mime_type)
+            }
+            
+            logger.info(f"Отправка изображения в Pixelbin API: {filename} ({len(image_data)} bytes)")
+            response = requests.post(url, headers=PIXELBIN_HEADERS, files=files, timeout=60)
+            
+            if not response.ok:
+                logger.warning(f"Pixelbin API ошибка: {response.status_code} - {response.text[:200]}")
+                return None
+            
+            result = response.json()
+            logger.info(f"Pixelbin: изображение загружено, job_id: {result.get('_id')}")
+            return result
+            
+        except Exception as e:
+            logger.warning(f"Ошибка при загрузке в Pixelbin: {e}")
+            return None
+    
+    @staticmethod
+    def check_status(job_id: str, max_attempts: int = 10, delay: int = 3) -> Optional[Dict]:
+        """Проверка статуса задачи в Pixelbin API"""
+        if not job_id:
+            return None
+        
+        status_url = f"{PIXELBIN_BASE_URL}/{job_id}"
+        
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.get(status_url, headers=PIXELBIN_HEADERS, timeout=30)
+                
+                if response.ok:
+                    result = response.json()
+                    status = result.get('status', 'UNKNOWN')
+                    
+                    if status == 'SUCCESS':
+                        logger.info(f"Pixelbin: задача завершена успешно")
+                        return result
+                    elif status == 'FAILURE':
+                        logger.warning(f"Pixelbin: задача завершилась с ошибкой")
+                        return result
+                    elif status in ['ACCEPTED', 'PREPARING', 'PROCESSING']:
+                        if attempt < max_attempts:
+                            logger.debug(f"Pixelbin: статус {status}, ждём {delay} секунд...")
+                            time.sleep(delay)
+                            continue
+                        else:
+                            logger.warning(f"Pixelbin: задача всё ещё обрабатывается после {max_attempts} попыток")
+                            return result
+                
+                return result
+            except Exception as e:
+                logger.warning(f"Ошибка при проверке статуса Pixelbin: {e}")
+                if attempt < max_attempts:
+                    time.sleep(delay)
+                    continue
+                return None
+        
+        return None
+
+
+def extract_images_from_pixelbin_response(pixelbin_data: Dict) -> List[Dict]:
+    """Извлекает все URL изображений из ответа Pixelbin API"""
+    images = []
+    
+    if not pixelbin_data or 'output' not in pixelbin_data:
+        return images
+    
+    output = pixelbin_data.get('output', {})
+    skin_data = output.get('skinData', {})
+    
+    # Исходное изображение
+    if 'input' in pixelbin_data and 'image' in pixelbin_data['input']:
+        images.append({
+            'url': pixelbin_data['input']['image'],
+            'title': 'Исходное изображение',
+            'type': 'input'
+        })
+    
+    # Обработанное изображение
+    if 'inputImage' in skin_data:
+        images.append({
+            'url': skin_data['inputImage'],
+            'title': 'Обработанное изображение',
+            'type': 'processed'
+        })
+    
+    # Зоны лица
+    if 'zones' in skin_data:
+        zones = skin_data['zones']
+        if 't_zone' in zones and 'image' in zones['t_zone']:
+            images.append({
+                'url': zones['t_zone']['image'],
+                'title': f'T-зона ({zones["t_zone"].get("type", "")})',
+                'type': 'zone'
+            })
+        if 'u_zone' in zones and 'image' in zones['u_zone']:
+            images.append({
+                'url': zones['u_zone']['image'],
+                'title': f'U-зона ({zones["u_zone"].get("type", "")})',
+                'type': 'zone'
+            })
+    
+    # Комбинированная маска
+    if 'combine_masked_url' in skin_data:
+        images.append({
+            'url': skin_data['combine_masked_url'],
+            'title': 'Комбинированная маска',
+            'type': 'mask'
+        })
+    
+    # Изображения проблем (concerns)
+    if 'concerns' in skin_data:
+        for concern in skin_data['concerns']:
+            if 'image' in concern:
+                images.append({
+                    'url': concern['image'],
+                    'title': concern.get('name', 'Проблема'),
+                    'type': 'concern',
+                    'concern_name': concern.get('tech_name', ''),
+                    'value': concern.get('value', 0),
+                    'severity': concern.get('severity', '')
+                })
+    
+    return images
 
 
 
@@ -355,6 +503,32 @@ def analyze_skin():
         logger.info(f"   Модель: {used_model}")
         logger.info("="*80)
         
+        # Интеграция с Pixelbin API для получения изображений
+        pixelbin_images = []
+        try:
+            # Декодируем base64 изображение в bytes
+            image_bytes = base64.b64decode(image_base64)
+            
+            # Отправляем в Pixelbin API
+            pixelbin_result = PixelBinService.upload_image(image_bytes, "image.jpg")
+            
+            if pixelbin_result and '_id' in pixelbin_result:
+                job_id = pixelbin_result['_id']
+                logger.info(f"Pixelbin: задача создана, job_id: {job_id}")
+                
+                # Ждём завершения обработки
+                final_result = PixelBinService.check_status(job_id, max_attempts=10, delay=3)
+                
+                if final_result and final_result.get('status') == 'SUCCESS':
+                    # Извлекаем все изображения из ответа
+                    pixelbin_images = extract_images_from_pixelbin_response(final_result)
+                    logger.info(f"Pixelbin: получено {len(pixelbin_images)} изображений")
+                else:
+                    logger.warning(f"Pixelbin: задача не завершена или завершилась с ошибкой")
+        except Exception as e:
+            logger.warning(f"Ошибка при работе с Pixelbin API: {e}")
+            # Не прерываем основной анализ, если Pixelbin не работает
+        
         # Генерируем текстовый отчёт
         report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature, language)
         
@@ -364,7 +538,8 @@ def analyze_skin():
             "report": report,
             "provider": used_provider,
             "model": used_model,
-            "config": config
+            "config": config,
+            "pixelbin_images": pixelbin_images  # Добавляем изображения из Pixelbin
         })
         
     except Exception as e:
