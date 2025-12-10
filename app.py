@@ -28,12 +28,15 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
 # Конфигурация Pixelbin API
-PIXELBIN_ACCESS_TOKEN = os.getenv("PIXELBIN_ACCESS_TOKEN", "c5e15df7-73a6-4796-ac07-b3b6a6ccfb97")
+PIXELBIN_ACCESS_TOKEN = os.getenv("PIXELBIN_ACCESS_TOKEN")
 PIXELBIN_BASE_URL = "https://api.pixelbin.io/service/platform/transformation/v1.0/predictions"
-PIXELBIN_BEARER_TOKEN = base64.b64encode(PIXELBIN_ACCESS_TOKEN.encode('utf-8')).decode('utf-8')
+PIXELBIN_BEARER_TOKEN = base64.b64encode(PIXELBIN_ACCESS_TOKEN.encode('utf-8')).decode('utf-8') if PIXELBIN_ACCESS_TOKEN else None
 PIXELBIN_HEADERS = {
     "Authorization": f"Bearer {PIXELBIN_BEARER_TOKEN}",
-}
+} if PIXELBIN_BEARER_TOKEN else {}
+
+if not PIXELBIN_ACCESS_TOKEN:
+    logger.warning("PIXELBIN_ACCESS_TOKEN не найден в переменных окружения. Функциональность Pixelbin будет недоступна.")
 
 # Настройки моделей по умолчанию
 # Порядок попыток подключения к API для детекции
@@ -70,6 +73,10 @@ class PixelBinService:
     @staticmethod
     def upload_image(image_data: bytes, filename: str = "image.jpg") -> Optional[Dict]:
         """Загрузка изображения в Pixelbin API"""
+        if not PIXELBIN_ACCESS_TOKEN:
+            logger.warning("Pixelbin: ACCESS_TOKEN не настроен, пропускаем загрузку")
+            return None
+        
         try:
             url = f"{PIXELBIN_BASE_URL}/skinAnalysisInt/generate"
             
@@ -98,6 +105,10 @@ class PixelBinService:
     @staticmethod
     def check_status(job_id: str, max_attempts: int = 10, delay: int = 3) -> Optional[Dict]:
         """Проверка статуса задачи в Pixelbin API"""
+        if not PIXELBIN_ACCESS_TOKEN:
+            logger.warning("Pixelbin: ACCESS_TOKEN не настроен, пропускаем проверку статуса")
+            return None
+        
         if not job_id:
             return None
         
