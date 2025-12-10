@@ -514,9 +514,65 @@ def segment_face_area(concern_type: str, value: float) -> Dict:
     }
 
 
-def generate_heuristic_analysis(skin_data: Dict) -> Dict:
-    """Генерирует эвристический анализ на основе данных OpenRouter"""
+def parse_report_locations(report_text: str) -> Dict[str, List[str]]:
+    """Парсит текстовый отчёт для извлечения локализации проблем"""
+    import re
+    locations = {}
+    
+    # Ищем секцию "Локализация проблем" или похожую
+    location_section = re.search(r'Локализация проблем[:\-]?\s*(.*?)(?:\n\n|\Z)', report_text, re.IGNORECASE | re.DOTALL)
+    if not location_section:
+        # Ищем упоминания зон в тексте
+        location_section = re.search(r'(?:Локализация|расположение|находятся|в зоне|область)[:\-]?\s*(.*?)(?:\n\n|\Z)', report_text, re.IGNORECASE | re.DOTALL)
+    
+    if location_section:
+        location_text = location_section.group(1)
+        
+        # Извлекаем упоминания различных зон
+        zones_keywords = {
+            'pigmentation': ['щёки', 'щеки', 'cheeks', 'пигмент', 'пятна'],
+            'wrinkles': ['периорбитальная', 'периоральная', 'вокруг глаз', 'вокруг рта', 'лоб', 'forehead'],
+            'pores': ['т-зона', 't-zone', 'нос', 'nose', 'щёки', 'щеки'],
+            'acne': ['т-зона', 't-zone', 'щёки', 'щеки', 'подбородок', 'chin']
+        }
+        
+        for concern_type, keywords in zones_keywords.items():
+            found_zones = []
+            for keyword in keywords:
+                if keyword.lower() in location_text.lower():
+                    found_zones.append(keyword)
+            if found_zones:
+                locations[concern_type] = found_zones
+    
+    # Также ищем упоминания в основном тексте
+    if 'пигмент' in report_text.lower() or 'пятна' in report_text.lower():
+        if 'щёки' in report_text.lower() or 'щеки' in report_text.lower():
+            if 'pigmentation' not in locations:
+                locations['pigmentation'] = ['щёки']
+    
+    if 'морщин' in report_text.lower() or 'wrinkles' in report_text.lower():
+        if 'периорбитальная' in report_text.lower() or 'вокруг глаз' in report_text.lower():
+            if 'wrinkles' not in locations:
+                locations['wrinkles'] = ['периорбитальная']
+        if 'периоральная' in report_text.lower() or 'вокруг рта' in report_text.lower():
+            if 'wrinkles' in locations:
+                locations['wrinkles'].append('периоральная')
+            else:
+                locations['wrinkles'] = ['периоральная']
+    
+    return locations
+
+
+def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dict:
+    """Генерирует эвристический анализ на основе данных OpenRouter и текстового отчёта"""
     concerns = []
+    
+    # Парсим локализацию из отчёта, если он есть
+    report_locations = {}
+    if report_text:
+        report_locations = parse_report_locations(report_text)
+    
+    # Определяем проблемы на основе значений с сегментацией
     
     # Определяем проблемы на основе значений с сегментацией
     if skin_data.get('acne_score', 0) > 30:
@@ -532,16 +588,41 @@ def generate_heuristic_analysis(skin_data: Dict) -> Dict:
         })
     
     if skin_data.get('pigmentation_score', 0) > 40:
-        position = segment_face_area('pigmentation', skin_data.get('pigmentation_score', 0))
-        concerns.append({
-            'name': 'Пигментация',
-            'tech_name': 'pigmentation',
-            'value': skin_data.get('pigmentation_score', 0),
-            'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
-            'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
-            'area': 'face',
-            'position': position
-        })
+        # Пигментация всегда отображается как область (пятна)
+        if 'pigmentation' in report_locations and ('щёки' in str(report_locations['pigmentation']) or 'щеки' in str(report_locations['pigmentation'])):
+            # Создаём области на обеих щеках
+            concerns.append({
+                'name': 'Пигментация',
+                'tech_name': 'pigmentation',
+                'value': skin_data.get('pigmentation_score', 0),
+                'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
+                'description': f'Замечены участки пигментации на щеках. Используйте солнцезащитный крем.',
+                'area': 'face',
+                'position': {'x': 25, 'y': 45, 'width': 20, 'height': 25, 'zone': 'left_cheek', 'type': 'area'},
+                'is_area': True
+            })
+            concerns.append({
+                'name': 'Пигментация',
+                'tech_name': 'pigmentation',
+                'value': skin_data.get('pigmentation_score', 0),
+                'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
+                'description': f'Замечены участки пигментации на щеках. Используйте солнцезащитный крем.',
+                'area': 'face',
+                'position': {'x': 75, 'y': 45, 'width': 20, 'height': 25, 'zone': 'right_cheek', 'type': 'area'},
+                'is_area': True
+            })
+        else:
+            position = segment_face_area('pigmentation', skin_data.get('pigmentation_score', 0))
+            concerns.append({
+                'name': 'Пигментация',
+                'tech_name': 'pigmentation',
+                'value': skin_data.get('pigmentation_score', 0),
+                'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
+                'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
+                'area': 'face',
+                'position': {**position, 'type': 'area'},
+                'is_area': True
+            })
     
     if skin_data.get('pores_size', 0) > 50:
         position = segment_face_area('pores', skin_data.get('pores_size', 0))
@@ -556,16 +637,58 @@ def generate_heuristic_analysis(skin_data: Dict) -> Dict:
         })
     
     if skin_data.get('wrinkles_grade', 0) > 40:
+        # Морщины всегда отображаются как области
         position = segment_face_area('wrinkles', skin_data.get('wrinkles_grade', 0))
-        concerns.append({
-            'name': 'Морщины',
-            'tech_name': 'wrinkles',
-            'value': skin_data.get('wrinkles_grade', 0),
-            'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
-            'description': f'Замечены признаки старения. Увлажнение и защита от солнца помогут.',
-            'area': 'face',
-            'position': position
-        })
+        # Если в отчёте указаны конкретные области, используем их
+        if 'wrinkles' in report_locations:
+            locations = report_locations['wrinkles']
+            if 'периорбитальная' in str(locations) or 'вокруг глаз' in str(locations):
+                # Область вокруг глаз
+                concerns.append({
+                    'name': 'Морщины (периорбитальная область)',
+                    'tech_name': 'wrinkles',
+                    'value': skin_data.get('wrinkles_grade', 0),
+                    'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
+                    'description': f'Замечены морщины вокруг глаз. Увлажнение и защита от солнца помогут.',
+                    'area': 'face',
+                    'position': {'x': 50, 'y': 35, 'width': 35, 'height': 20, 'zone': 'periorbital', 'type': 'area'},
+                    'is_area': True
+                })
+            if 'периоральная' in str(locations) or 'вокруг рта' in str(locations):
+                # Область вокруг рта
+                concerns.append({
+                    'name': 'Морщины (периоральная область)',
+                    'tech_name': 'wrinkles',
+                    'value': skin_data.get('wrinkles_grade', 0),
+                    'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
+                    'description': f'Замечены морщины вокруг рта. Увлажнение и защита от солнца помогут.',
+                    'area': 'face',
+                    'position': {'x': 50, 'y': 65, 'width': 25, 'height': 15, 'zone': 'perioral', 'type': 'area'},
+                    'is_area': True
+                })
+            if 'лоб' in str(locations) or 'forehead' in str(locations):
+                concerns.append({
+                    'name': 'Морщины (лоб)',
+                    'tech_name': 'wrinkles',
+                    'value': skin_data.get('wrinkles_grade', 0),
+                    'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
+                    'description': f'Замечены морщины на лбу. Увлажнение и защита от солнца помогут.',
+                    'area': 'face',
+                    'position': {'x': 50, 'y': 20, 'width': 40, 'height': 15, 'zone': 'forehead', 'type': 'area'},
+                    'is_area': True
+                })
+        else:
+            # По умолчанию создаём области для морщин
+            concerns.append({
+                'name': 'Морщины',
+                'tech_name': 'wrinkles',
+                'value': skin_data.get('wrinkles_grade', 0),
+                'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
+                'description': f'Замечены признаки старения. Увлажнение и защита от солнца помогут.',
+                'area': 'face',
+                'position': {**position, 'type': 'area'},
+                'is_area': True
+            })
     
     if skin_data.get('moisture_level', 0) < 50:
         position = segment_face_area('hydration', skin_data.get('moisture_level', 0))
