@@ -1260,16 +1260,56 @@
                     metaText = image.type;
                 }
                 
-                item.innerHTML = `
-                    <img src="${image.url}" alt="${image.title}" class="gallery-image" 
-                         onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect fill=%22%23000%22 width=%22200%22 height=%22200%22/%3E%3Ctext fill=%22%23fff%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22%3EОшибка загрузки%3C/text%3E%3C/svg%3E';">
-                    <div class="gallery-title">${image.title}</div>
-                    ${metaText ? `<div class="gallery-meta">${metaText}</div>` : ''}
-                `;
+                // Создаём элемент изображения с правильными атрибутами
+                const img = document.createElement('img');
+                img.className = 'gallery-image';
+                img.alt = image.title;
+                img.loading = 'lazy';
+                img.referrerPolicy = 'no-referrer';
+                
+                // Используем proxy для обхода CORS, если URL от Pixelbin
+                const imageUrl = image.url && image.url.includes('pixelbin.io') 
+                    ? `/api/proxy-image?url=${encodeURIComponent(image.url)}`
+                    : image.url;
+                
+                // Устанавливаем src после создания элемента для лучшей обработки ошибок
+                img.src = imageUrl;
+                
+                // Обработка ошибок загрузки
+                img.onerror = function() {
+                    console.warn(`Ошибка загрузки изображения: ${image.title}`, image.url);
+                    this.src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect fill=%22%23000%22 width=%22200%22 height=%22200%22/%3E%3Ctext fill=%22%23fff%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 font-size=%2212%22%3EОшибка%3C/text%3E%3Ctext fill=%22%23fff%22 x=%2250%25%22 y=%2265%25%22 text-anchor=%22middle%22 dy=%22.3em%22 font-size=%2210%22%3Eзагрузки%3C/text%3E%3C/svg%3E';
+                    this.onerror = null; // Предотвращаем бесконечный цикл
+                };
+                
+                // Обработка успешной загрузки
+                img.onload = function() {
+                    console.log(`Изображение загружено: ${image.title}`);
+                };
+                
+                // Создаём контейнер для текста
+                const titleDiv = document.createElement('div');
+                titleDiv.className = 'gallery-title';
+                titleDiv.textContent = image.title;
+                
+                // Добавляем метаданные если есть
+                if (metaText) {
+                    const metaDiv = document.createElement('div');
+                    metaDiv.className = 'gallery-meta';
+                    metaDiv.textContent = metaText;
+                    item.appendChild(metaDiv);
+                }
+                
+                // Добавляем элементы в правильном порядке
+                item.appendChild(img);
+                item.appendChild(titleDiv);
+                
+                // Сохраняем оригинальный URL для открытия в полном размере
+                const originalUrl = image.url;
                 
                 // Добавляем обработчик клика для открытия в полном размере
                 item.addEventListener('click', () => {
-                    window.open(image.url, '_blank');
+                    window.open(originalUrl, '_blank');
                 });
                 
                 galleryGrid.appendChild(item);

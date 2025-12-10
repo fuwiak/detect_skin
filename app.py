@@ -571,6 +571,37 @@ def analyze_skin():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/proxy-image', methods=['GET'])
+def proxy_image():
+    """Прокси для загрузки изображений Pixelbin (обход CORS)"""
+    try:
+        image_url = request.args.get('url')
+        if not image_url:
+            return jsonify({"error": "URL не предоставлен"}), 400
+        
+        # Проверяем, что URL от Pixelbin
+        if 'delivery.pixelbin.io' not in image_url and 'pixelbin.io' not in image_url:
+            return jsonify({"error": "Недопустимый URL"}), 400
+        
+        # Загружаем изображение
+        response = requests.get(image_url, timeout=30, stream=True)
+        response.raise_for_status()
+        
+        # Возвращаем изображение с правильными заголовками
+        from flask import Response
+        return Response(
+            response.content,
+            mimetype=response.headers.get('Content-Type', 'image/jpeg'),
+            headers={
+                'Cache-Control': 'public, max-age=3600',
+                'Access-Control-Allow-Origin': '*'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при проксировании изображения: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/config', methods=['GET'])
 def get_config():
     """Получить текущую конфигурацию"""
