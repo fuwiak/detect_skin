@@ -888,28 +888,26 @@ def analyze_skin():
                     logger.warning(f"Pixelbin: задача не завершена или завершилась с ошибкой, используем эвристики")
                     use_heuristics = True
             elif use_heuristics:
-                # Используем эвристический анализ
+                # Используем эвристический анализ (отчёт будет сгенерирован позже)
                 logger.info("Использование эвристического анализа вместо Pixelbin")
-                heuristic_data = generate_heuristic_analysis(skin_data)
-                # Добавляем информацию об эвристике
-                pixelbin_images = [{
-                    'type': 'heuristic',
-                    'heuristic_data': heuristic_data,
-                    'message': 'Использован эвристический анализ'
-                }]
+                use_heuristics = True
         except Exception as e:
             logger.warning(f"Ошибка при работе с Pixelbin API: {e}, используем эвристики")
             # При любой ошибке используем эвристики
             use_heuristics = True
-            heuristic_data = generate_heuristic_analysis(skin_data)
+        
+        # Генерируем текстовый отчёт
+        report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature, language)
+        
+        # Если используем эвристики, генерируем данные с учётом отчёта
+        if use_heuristics:
+            logger.info("Генерация эвристического анализа с учётом текстового отчёта")
+            heuristic_data = generate_heuristic_analysis(skin_data, report)
             pixelbin_images = [{
                 'type': 'heuristic',
                 'heuristic_data': heuristic_data,
                 'message': 'Использован эвристический анализ'
             }]
-        
-        # Генерируем текстовый отчёт
-        report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature, language)
         
         return jsonify({
             "success": True,
