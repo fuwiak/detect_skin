@@ -600,7 +600,7 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                 'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
                 'description': f'Замечены участки пигментации на щеках. Используйте солнцезащитный крем.',
                 'area': 'face',
-                'position': {'x': 25, 'y': 45, 'width': 20, 'height': 25, 'zone': 'left_cheek', 'type': 'area'},
+                'position': {'x': 25, 'y': 45, 'width': 20, 'height': 25, 'zone': 'left_cheek', 'type': 'area', 'shape': 'ellipse'},
                 'is_area': True
             })
             concerns.append({
@@ -610,7 +610,7 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None) -> Dic
                 'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
                 'description': f'Замечены участки пигментации на щеках. Используйте солнцезащитный крем.',
                 'area': 'face',
-                'position': {'x': 75, 'y': 45, 'width': 20, 'height': 25, 'zone': 'right_cheek', 'type': 'area'},
+                'position': {'x': 75, 'y': 45, 'width': 20, 'height': 25, 'zone': 'right_cheek', 'type': 'area', 'shape': 'ellipse'},
                 'is_area': True
             })
         else:
