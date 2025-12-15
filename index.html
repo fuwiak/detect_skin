@@ -1493,8 +1493,8 @@
                             }
                         }
                         
-                        // Показываем маски в галерее
-                        displaySam3Masks(sam3Item.sam3_results || {});
+                        // Показываем готовое изображение и маски в галерее
+                        displaySam3Masks(sam3Item.sam3_results || {}, sam3Item.overlay_image);
                     } else {
                         setStatusLog([]);
                     }
@@ -1733,12 +1733,36 @@
             document.getElementById('heuristicModal').style.display = 'none';
         }
 
-        function displaySam3Masks(sam3Results) {
+        function displaySam3Masks(sam3Results, overlayImage) {
             const gallerySection = document.getElementById('imagesGallery');
             const grid = document.getElementById('galleryGrid');
             const title = document.getElementById('galleryTitle');
             if (!gallerySection || !grid || !title) return;
             grid.innerHTML = '';
+
+            // Если есть готовое изображение с наложенными масками - показываем его первым
+            if (overlayImage) {
+                const overlayCard = document.createElement('div');
+                overlayCard.className = 'image-card';
+                
+                const overlayHeader = document.createElement('div');
+                overlayHeader.className = 'image-title';
+                overlayHeader.textContent = '🔬 ИЗОБРАЖЕНИЕ С МАСКАМИ';
+                overlayCard.appendChild(overlayHeader);
+                
+                const overlayImg = document.createElement('img');
+                overlayImg.src = overlayImage;
+                overlayImg.alt = 'Изображение с наложенными масками SAM3';
+                overlayImg.style.width = '100%';
+                overlayImg.style.objectFit = 'contain';
+                overlayImg.style.cursor = 'pointer';
+                overlayImg.onclick = () => {
+                    window.open(overlayImage, '_blank');
+                };
+                overlayCard.appendChild(overlayImg);
+                
+                grid.appendChild(overlayCard);
+            }
 
             const entries = Object.entries(sam3Results || {});
             entries.forEach(([disease, result]) => {
@@ -1771,9 +1795,9 @@
                 grid.appendChild(card);
             });
 
-            if (entries.length > 0) {
+            if (entries.length > 0 || overlayImage) {
                 gallerySection.style.display = 'block';
-                title.textContent = 'SAM3 МАСКИ';
+                title.textContent = 'SAM3 РЕЗУЛЬТАТЫ';
             } else {
                 gallerySection.style.display = 'none';
             }

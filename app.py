@@ -772,6 +772,7 @@ def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int
 def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -> Optional[str]:
     """
     Создаёт изображение с наложенными масками SAM3 на оригинальное фото.
+    Создаёт КОПИЮ изображения и накладывает ВСЕ маски на эту копию.
     Возвращает base64 строку готового изображения.
     """
     if not NUMPY_AVAILABLE:
@@ -783,12 +784,15 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
         original = Image.open(io.BytesIO(original_image_bytes)).convert('RGB')
         width, height = original.size
         
-        # Затемняем оригинал для контраста
-        original_array = np.array(original).astype(float)
-        dimmed = (original_array * 0.25).astype(np.uint8)
-        dimmed_img = Image.fromarray(dimmed).convert('RGBA')
+        # СОЗДАЁМ КОПИЮ изображения (не изменяем оригинал!)
+        result_img = original.copy().convert('RGBA')
         
-        # Слой для подсветки
+        # Затемняем копию для контраста
+        result_array = np.array(result_img).astype(float)
+        dimmed = (result_array * 0.25).astype(np.uint8)
+        result_img = Image.fromarray(dimmed).convert('RGBA')
+        
+        # Слой для подсветки (начинаем с прозрачного)
         highlight_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
         
         # Цвета для разных заболеваний
@@ -812,7 +816,9 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
             'spider veins': (200, 0, 150), 'sunburn': (255, 40, 0), 'peeling': (255, 220, 180),
         }
         
-        # Обрабатываем каждое заболевание
+        total_masks = 0
+        
+        # Обрабатываем КАЖДОЕ заболевание и КАЖДУЮ маску
         for disease, result in mask_results.items():
             if not result or not isinstance(result, dict):
                 continue
@@ -821,6 +827,7 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
                 continue
             
             color = colors.get(disease, (255, 255, 255))
+            logger.info(f"Обработка масок для {disease}: {len(result['masks'])} масок")
             
             for i, mask_data in enumerate(result['masks']):
                 if 'url' not in mask_data:
@@ -828,10 +835,16 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
                 
                 try:
                     mask_url = mask_data['url']
+                    logger.debug(f"Загрузка маски {disease} #{i+1}: {mask_url}")
+                    
                     # Загружаем маску
                     mask_response = requests.get(mask_url, timeout=30)
                     mask_response.raise_for_status()
-                    mask_img = Image.open(io.BytesIO(mask_response.content)).convert('L')
+                    
+                    # Пробуем загрузить как grayscale, если не получается - конвертируем
+                    mask_img = Image.open(io.BytesIO(mask_response.content))
+                    if mask_img.mode != 'L':
+                        mask_img = mask_img.convert('L')
                     
                     # Масштабируем под размер оригинала
                     if mask_img.size != (width, height):
@@ -839,15 +852,20 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
                     
                     mask_array = np.array(mask_img)
                     
-                    # Основное заполнение
+                    # Проверяем, что маска не пустая
+                    if np.max(mask_array) == 0:
+                        logger.warning(f"Маска {disease} #{i+1} пустая, пропускаем")
+                        continue
+                    
+                    # Основное заполнение цветом
+                    mask_binary = (mask_array > 127).astype(np.uint8) * 255
                     colored_fill = Image.new('RGBA', (width, height), color + (255,))
-                    mask_alpha = Image.fromarray(mask_array).convert('L')
+                    mask_alpha = Image.fromarray(mask_binary).convert('L')
                     
                     fill_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
                     fill_layer.paste(colored_fill, (0, 0), mask_alpha)
                     
-                    # Толстая обводка
-                    mask_binary = (mask_array > 127).astype(np.uint8) * 255
+                    # Толстая белая обводка
                     dilated = ndimage.binary_dilation(mask_binary, iterations=7).astype(np.uint8) * 255
                     eroded = ndimage.binary_erosion(mask_binary, iterations=1).astype(np.uint8) * 255
                     thick_border = dilated - eroded
@@ -857,7 +875,7 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
                     border_img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
                     border_img.paste(border_layer, (0, 0), border_alpha)
                     
-                    # Двойное свечение
+                    # Двойное свечение для лучшей видимости
                     glow1 = ndimage.binary_dilation(mask_binary, iterations=15).astype(np.uint8) * 255
                     glow1 = glow1 - mask_binary
                     glow1_img = Image.fromarray(glow1).convert('L').filter(ImageFilter.GaussianBlur(radius=7))
@@ -872,20 +890,29 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
                     glow2_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
                     glow2_layer.paste(glow2_colored, (0, 0), glow2_img)
                     
-                    # Объединяем слои
+                    # НАКЛАДЫВАЕМ все слои на highlight_layer
                     highlight_layer = Image.alpha_composite(highlight_layer, glow2_layer)
                     highlight_layer = Image.alpha_composite(highlight_layer, glow1_layer)
                     highlight_layer = Image.alpha_composite(highlight_layer, fill_layer)
                     highlight_layer = Image.alpha_composite(highlight_layer, border_img)
                     
+                    total_masks += 1
+                    logger.debug(f"Маска {disease} #{i+1} наложена успешно")
+                    
                 except Exception as e:
                     logger.warning(f"Ошибка обработки маски {disease} #{i+1}: {e}")
                     continue
         
-        # Объединяем затемнённое изображение с подсветкой
-        result_img = Image.alpha_composite(dimmed_img, highlight_layer).convert('RGB')
+        if total_masks == 0:
+            logger.warning("Не найдено масок для наложения")
+            return None
         
-        # Усиление контраста и цвета
+        logger.info(f"Всего наложено {total_masks} масок")
+        
+        # Объединяем затемнённое изображение с подсветкой
+        result_img = Image.alpha_composite(result_img, highlight_layer).convert('RGB')
+        
+        # Усиление контраста и цвета для лучшей видимости
         enhancer = ImageEnhance.Contrast(result_img)
         result_img = enhancer.enhance(2.2)
         enhancer = ImageEnhance.Color(result_img)
@@ -900,11 +927,11 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
         output.seek(0)
         image_base64 = base64.b64encode(output.read()).decode('utf-8')
         
-        logger.info("Изображение с наложенными масками SAM3 создано успешно")
+        logger.info(f"✅ Изображение с наложенными масками SAM3 создано успешно ({total_masks} масок)")
         return f"data:image/jpeg;base64,{image_base64}"
         
     except Exception as e:
-        logger.error(f"Ошибка создания изображения с масками: {e}")
+        logger.error(f"Ошибка создания изображения с масками: {e}", exc_info=True)
         return None
 
 
@@ -1554,6 +1581,9 @@ def analyze_skin():
                 logger.warning("HEIC файл получен, но поддержка HEIC не доступна")
 
         if mode == "sam3":
+            # Сохраняем оригинальное изображение для наложения масок
+            original_image_bytes = bytes(image_bytes)  # Создаём копию bytes
+            
             statuses = []
             statuses.append("🔧 ПРЕДОБРАБОТКА")
             preprocessed = PixelBinService.preprocess_for_pixelbin(image_bytes)
@@ -1570,13 +1600,15 @@ def analyze_skin():
             sam3_result = run_sam3_pipeline(image_bytes, selected_diseases, timeout=sam3_timeout)
             combined_statuses = statuses + sam3_result.get('statuses', [])
             
-            # Создаём изображение с наложенными масками
+            # Создаём изображение с наложенными масками на ОРИГИНАЛЬНОЕ фото
             overlay_image = None
             mask_results = sam3_result.get('mask_results', {})
             if mask_results:
-                overlay_image = create_sam3_overlay_image(image_bytes, mask_results)
+                # Используем оригинальное изображение для наложения масок
+                # Маски будут масштабированы под размер оригинала
+                overlay_image = create_sam3_overlay_image(original_image_bytes, mask_results)
                 if overlay_image:
-                    logger.info("✅ Изображение с масками SAM3 создано")
+                    logger.info("✅ Изображение с масками SAM3 создано на оригинальном фото")
                 else:
                     logger.warning("⚠️ Не удалось создать изображение с масками")
 
