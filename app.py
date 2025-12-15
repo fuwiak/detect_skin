@@ -32,7 +32,7 @@ except ImportError:
 
 # Импорт для работы с HEIC (после logger)
 try:
-    from PIL import Image, ImageOps, ImageEnhance, ImageFilter
+    from PIL import Image, ImageOps, ImageEnhance, ImageFilter, ImageDraw, ImageFont
     from pillow_heif import register_heif_opener
     register_heif_opener()
     HEIC_SUPPORT = True
@@ -817,6 +817,7 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
         }
         
         total_masks = 0
+        mask_centers = []  # Сохраняем центры масок для добавления текста
         
         # Обрабатываем КАЖДОЕ заболевание и КАЖДУЮ маску
         for disease, result in mask_results.items():
@@ -827,7 +828,9 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
                 continue
             
             color = colors.get(disease, (255, 255, 255))
-            logger.info(f"Обработка масок для {disease}: {len(result['masks'])} масок")
+            # Получаем русское название болезни
+            disease_name_ru = SAM3_DISEASES_DEFAULT.get(disease, disease)
+            logger.info(f"Обработка масок для {disease} ({disease_name_ru}): {len(result['masks'])} масок")
             
             for i, mask_data in enumerate(result['masks']):
                 if 'url' not in mask_data:
@@ -859,6 +862,14 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
                     
                     # Основное заполнение цветом
                     mask_binary = (mask_array > 127).astype(np.uint8) * 255
+                    
+                    # Находим центр маски для добавления текста
+                    coords = np.where(mask_binary > 0)
+                    if len(coords[0]) > 0:
+                        center_y = int(np.mean(coords[0]))
+                        center_x = int(np.mean(coords[1]))
+                        mask_centers.append((center_x, center_y, disease_name_ru, color))
+                    
                     colored_fill = Image.new('RGBA', (width, height), color + (255,))
                     mask_alpha = Image.fromarray(mask_binary).convert('L')
                     
@@ -911,6 +922,50 @@ def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -
         
         # Объединяем затемнённое изображение с подсветкой
         result_img = Image.alpha_composite(result_img, highlight_layer).convert('RGB')
+        
+        # Добавляем русские названия болезней на изображение
+        if mask_centers:
+            draw = ImageDraw.Draw(result_img)
+            # Пробуем загрузить шрифт, если не получается - используем стандартный
+            try:
+                # Пытаемся использовать системный шрифт
+                font_size = max(20, min(width, height) // 30)
+                try:
+                    font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+                except:
+                    try:
+                        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+                    except:
+                        font = ImageFont.load_default()
+            except:
+                font = ImageFont.load_default()
+            
+            for center_x, center_y, disease_name, color in mask_centers:
+                # Рисуем текст с обводкой для лучшей читаемости
+                text = disease_name
+                # Получаем размер текста (с fallback для старых версий PIL)
+                try:
+                    bbox = draw.textbbox((0, 0), text, font=font)
+                    text_width = bbox[2] - bbox[0]
+                    text_height = bbox[3] - bbox[1]
+                except AttributeError:
+                    # Fallback для старых версий PIL
+                    text_width, text_height = draw.textsize(text, font=font)
+                
+                # Позиция текста (центр маски)
+                text_x = center_x - text_width // 2
+                text_y = center_y - text_height // 2
+                
+                # Рисуем обводку (чёрная) для лучшей читаемости
+                for adj in [(-2, -2), (-2, -1), (-2, 0), (-2, 1), (-2, 2),
+                           (-1, -2), (-1, -1), (-1, 0), (-1, 1), (-1, 2),
+                           (0, -2), (0, -1), (0, 1), (0, 2),
+                           (1, -2), (1, -1), (1, 0), (1, 1), (1, 2),
+                           (2, -2), (2, -1), (2, 0), (2, 1), (2, 2)]:
+                    draw.text((text_x + adj[0], text_y + adj[1]), text, font=font, fill=(0, 0, 0, 255))
+                
+                # Рисуем сам текст (белый)
+                draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
         
         # Усиление контраста и цвета для лучшей видимости
         enhancer = ImageEnhance.Contrast(result_img)

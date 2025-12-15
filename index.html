@@ -1740,14 +1740,14 @@
             if (!gallerySection || !grid || !title) return;
             grid.innerHTML = '';
 
-            // Если есть готовое изображение с наложенными масками - показываем его первым
+            // Показываем только готовое изображение с наложенными масками
             if (overlayImage) {
                 const overlayCard = document.createElement('div');
                 overlayCard.className = 'image-card';
                 
                 const overlayHeader = document.createElement('div');
                 overlayHeader.className = 'image-title';
-                overlayHeader.textContent = '🔬 ИЗОБРАЖЕНИЕ С МАСКАМИ';
+                overlayHeader.textContent = '🔬 ИЗОБРАЖЕНИЕ С МАСКАМИ SAM3';
                 overlayCard.appendChild(overlayHeader);
                 
                 const overlayImg = document.createElement('img');
@@ -1762,48 +1762,12 @@
                 overlayCard.appendChild(overlayImg);
                 
                 grid.appendChild(overlayCard);
-            }
-
-            const entries = Object.entries(sam3Results || {});
-            entries.forEach(([disease, result]) => {
-                const card = document.createElement('div');
-                card.className = 'image-card';
-
-                const header = document.createElement('div');
-                header.className = 'image-title';
-                header.textContent = disease;
-                card.appendChild(header);
-
-                if (result && result.masks && result.masks.length > 0) {
-                    result.masks.forEach(mask => {
-                        if (!mask.url) return;
-                        const img = document.createElement('img');
-                        img.src = mask.url;
-                        img.alt = `${disease} mask`;
-                        img.style.width = '100%';
-                        img.style.objectFit = 'contain';
-                        card.appendChild(img);
-                    });
-                } else {
-                    const empty = document.createElement('p');
-                    empty.style.color = '#00ffff';
-                    empty.style.fontSize = '0.7em';
-                    empty.textContent = 'Маски не найдены';
-                    card.appendChild(empty);
-                }
-
-                grid.appendChild(card);
-            });
-
-            if (entries.length > 0 || overlayImage) {
+                
                 gallerySection.style.display = 'block';
                 title.textContent = 'SAM3 РЕЗУЛЬТАТЫ';
             } else {
                 gallerySection.style.display = 'none';
             }
-
-            // Больше не накладываем маски на клиенте - это делается на бэкенде
-            // applySam3Overlay(sam3Results);
         }
 
         function clearSam3Overlay() {
