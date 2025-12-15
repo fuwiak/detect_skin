@@ -803,11 +803,15 @@
             <div class="modal-overlay" id="heuristicModal" style="display: none;">
                 <div class="modal-content">
                     <h3 style="color: #ff00ff; margin-bottom: 15px; text-align: center;">⚠️ ЭВРИСТИЧЕСКИЙ АНАЛИЗ</h3>
-                    <p style="color: #00ffff; font-size: 0.6em; line-height: 1.6; margin-bottom: 20px; text-align: center;">
-                        Pixelbin API вернул ошибку валидации.<br>
-                        Используется эвристический анализ на основе данных OpenRouter.<br>
+                    <p style="color: #00ffff; font-size: 0.6em; line-height: 1.6; margin-bottom: 15px; text-align: center;" id="heuristicModalMessage">
+                        Pixelbin API недоступен.<br>
+                        Используется эвристический анализ.<br>
                         Результаты могут быть менее точными.
                     </p>
+                    <div id="heuristicMethodsList" style="color: #00ffff; font-size: 0.5em; line-height: 1.8; margin-bottom: 20px; text-align: left; padding: 10px; background: rgba(0,255,255,0.1); border: 1px solid #00ffff;">
+                        <strong style="color: #ff00ff;">Использованные методы:</strong><br>
+                        <span id="methodsText">Загрузка...</span>
+                    </div>
                     <button class="upload-btn" onclick="closeHeuristicModal()" style="width: 100%;">
                         ПОНЯТНО
                     </button>
@@ -1345,7 +1349,36 @@
                     
                     // Проверяем, используется ли эвристика
                     if (data.use_heuristics) {
-                        showHeuristicModal();
+                        // Получаем информацию о методах
+                        let methodsInfo = "Простые эвристики";
+                        let methodsList = [];
+                        
+                        if (data.pixelbin_images && data.pixelbin_images.length > 0) {
+                            const heuristicItem = data.pixelbin_images.find(img => img.type === 'heuristic');
+                            if (heuristicItem) {
+                                if (heuristicItem.primary_method) {
+                                    methodsInfo = heuristicItem.primary_method;
+                                }
+                                if (heuristicItem.methods_used && heuristicItem.methods_used.length > 0) {
+                                    methodsList = heuristicItem.methods_used;
+                                } else if (heuristicItem.heuristic_data && heuristicItem.heuristic_data.methods_used) {
+                                    methodsList = heuristicItem.heuristic_data.methods_used;
+                                    methodsInfo = heuristicItem.heuristic_data.primary_method || methodsInfo;
+                                }
+                            }
+                        }
+                        
+                        // Формируем сообщение
+                        let message = "Pixelbin API недоступен.<br>";
+                        if (data.analysis_method) {
+                            message += `Используется: ${data.analysis_method}.<br>`;
+                        } else {
+                            message += "Используется эвристический анализ.<br>";
+                        }
+                        message += "Результаты могут быть менее точными.";
+                        
+                        showHeuristicModal(message, methodsList, methodsInfo);
+                        
                         // Отображаем эвристические данные на изображении
                         if (data.pixelbin_images && data.pixelbin_images.length > 0) {
                             const heuristicItem = data.pixelbin_images.find(img => img.type === 'heuristic');
@@ -1514,8 +1547,32 @@
             gallerySection.style.display = 'block';
         }
 
-        function showHeuristicModal() {
-            document.getElementById('heuristicModal').style.display = 'flex';
+        function showHeuristicModal(message, methodsList, primaryMethod) {
+            const modal = document.getElementById('heuristicModal');
+            const messageEl = document.getElementById('heuristicModalMessage');
+            const methodsTextEl = document.getElementById('methodsText');
+            
+            if (messageEl) {
+                messageEl.innerHTML = message || "Pixelbin API недоступен.<br>Используется эвристический анализ.<br>Результаты могут быть менее точными.";
+            }
+            
+            if (methodsTextEl) {
+                if (methodsList && methodsList.length > 0) {
+                    // Отображаем список методов с приоритетом
+                    let methodsHtml = "";
+                    methodsList.forEach((method, index) => {
+                        const isPrimary = (index === 0) || (method === primaryMethod);
+                        const prefix = isPrimary ? "→ " : "  ";
+                        const style = isPrimary ? "color: #ff00ff; font-weight: bold;" : "color: #00ffff;";
+                        methodsHtml += `<span style="${style}">${prefix}${method}</span><br>`;
+                    });
+                    methodsTextEl.innerHTML = methodsHtml;
+                } else {
+                    methodsTextEl.textContent = primaryMethod || "Простые эвристики";
+                }
+            }
+            
+            modal.style.display = 'flex';
         }
 
         function closeHeuristicModal() {

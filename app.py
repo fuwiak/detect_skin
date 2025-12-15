@@ -38,6 +38,15 @@ except ImportError as e:
     SEGMENTATION_AVAILABLE = False
     logger.warning(f"Модуль сегментации недоступен: {e}")
 
+# Импорт модуля Hugging Face сегментации
+try:
+    from hf_segmentation import get_hf_segmenter
+    HF_SEGMENTATION_AVAILABLE = True
+    logger.info("Модуль Hugging Face сегментации доступен")
+except ImportError as e:
+    HF_SEGMENTATION_AVAILABLE = False
+    logger.warning(f"Модуль Hugging Face сегментации недоступен: {e}")
+
 # Загружаем переменные окружения
 load_dotenv()
 
@@ -126,7 +135,7 @@ class PixelBinService:
                 img.save(buf, format="JPEG", quality=90)
                 return buf.getvalue()
         except Exception as e:
-            logger.warning(f\"Preprocess Pixelbin не удался: {e}\")
+            logger.warning(f"Preprocess Pixelbin не удался: {e}")
             return None
     
     @staticmethod
@@ -736,19 +745,48 @@ def convert_bbox_to_position(bbox: List[float], image_width: int = 1000, image_h
 
 
 def generate_heuristic_analysis(skin_data: Dict, report_text: str = None, image_bytes: Optional[bytes] = None) -> Dict:
-    """Генерирует эвристический анализ на основе данных OpenRouter и текстового отчёта"""
+    """
+    Генерирует эвристический анализ на основе данных OpenRouter и текстового отчёта
+    Использует приоритет методов: HF сегментация > обычная сегментация > bounding boxes > простые эвристики
+    """
     concerns = []
+    methods_used = []  # Отслеживаем использованные методы
     
     # Получаем bounding boxes, если они есть
     bounding_boxes = skin_data.get('_bounding_boxes', {})
     
-    # Пытаемся использовать сегментацию для улучшения обнаружения
-    segmentation_results = None
-    if SEGMENTATION_AVAILABLE and image_bytes:
+    # Словарь для хранения маркеров от разных методов сегментации
+    hf_markers = {}
+    segmentation_markers = {}
+    
+    # ПРИОРИТЕТ 1: Hugging Face сегментация (самая точная)
+    if HF_SEGMENTATION_AVAILABLE and image_bytes:
+        try:
+            hf_token = os.getenv("HF_TOKEN")
+            hf_segmenter = get_hf_segmenter(hf_token)
+            hf_results = hf_segmenter.segment_image(image_bytes)
+            
+            if hf_results and hf_results.get('method') == 'hf_segmentation':
+                logger.info("✅ Использована Hugging Face сегментация")
+                methods_used.append("Hugging Face сегментация")
+                
+                # Извлекаем маркеры для каждого типа дефекта
+                hf_markers = {
+                    'acne': hf_results.get('acne', []),
+                    'pigmentation': hf_results.get('pigmentation', []),
+                    'wrinkles': hf_results.get('wrinkles', []),
+                    'papillomas': hf_results.get('papillomas', [])
+                }
+        except Exception as e:
+            logger.warning(f"Ошибка при HF сегментации: {e}")
+    
+    # ПРИОРИТЕТ 2: Обычная сегментация (MobileNetV2+UNet)
+    if not hf_markers and SEGMENTATION_AVAILABLE and image_bytes:
         try:
             segmenter = get_segmenter()
             segmentation_results = segmenter.segment_image(image_bytes)
-            logger.info("Сегментация выполнена успешно")
+            logger.info("✅ Использована обычная сегментация (MobileNetV2+UNet)")
+            methods_used.append("Сегментация MobileNetV2+UNet")
             
             # Добавляем результаты сегментации в bounding_boxes
             if segmentation_results:
@@ -756,17 +794,22 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None, image_
                     if 'wrinkles' not in bounding_boxes:
                         bounding_boxes['wrinkles'] = []
                     for wrinkle in segmentation_results['wrinkles']:
-                        if wrinkle.get('confidence', 0) > 0.3:  # Фильтруем по уверенности
+                        if wrinkle.get('confidence', 0) > 0.3:
                             bounding_boxes['wrinkles'].append(wrinkle['bbox'])
                 
                 if 'pigmentation' in segmentation_results and segmentation_results['pigmentation']:
                     if 'pigmentation' not in bounding_boxes:
                         bounding_boxes['pigmentation'] = []
                     for pig in segmentation_results['pigmentation']:
-                        if pig.get('confidence', 0) > 0.2:  # Фильтруем по уверенности
+                        if pig.get('confidence', 0) > 0.2:
                             bounding_boxes['pigmentation'].append(pig['bbox'])
         except Exception as e:
             logger.warning(f"Ошибка при сегментации: {e}")
+    
+    # ПРИОРИТЕТ 3: Bounding boxes из LLM (Gemini/GPT-4o Vision)
+    if bounding_boxes:
+        logger.info("✅ Использованы bounding boxes из LLM")
+        methods_used.append("Bounding boxes (LLM)")
     
     # Парсим локализацию из отчёта, если он есть
     report_locations = {}
@@ -777,26 +820,54 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None, image_
     
     # Акне
     if skin_data.get('acne_score', 0) > 30:
-        if 'acne' in bounding_boxes and bounding_boxes['acne']:
+        acne_value = skin_data.get('acne_score', 0)
+        
+        # Приоритет: HF маркеры > bounding boxes > простые эвристики
+        if hf_markers.get('acne'):
+            # Используем точные маркеры из HF сегментации
+            for marker in hf_markers['acne']:
+                concerns.append({
+                    'name': 'Акне',
+                    'tech_name': 'acne',
+                    'value': marker.get('value', acne_value),
+                    'severity': 'Needs Attention' if acne_value > 60 else 'Average',
+                    'description': f'Обнаружены признаки акне. Рекомендуется консультация дерматолога.',
+                    'area': 'face',
+                    'position': {
+                        'x': marker['x'],
+                        'y': marker['y'],
+                        'width': marker['width'],
+                        'height': marker['height'],
+                        'shape': marker.get('shape', 'polygon'),
+                        'svg_path': marker.get('svg_path'),
+                        'points': marker.get('points'),
+                        'type': 'area'
+                    },
+                    'is_area': True
+                })
+        elif 'acne' in bounding_boxes and bounding_boxes['acne']:
             # Используем координаты из bounding boxes
             for bbox in bounding_boxes['acne']:
                 position = convert_bbox_to_position(bbox)
                 concerns.append({
                     'name': 'Акне',
                     'tech_name': 'acne',
-                    'value': skin_data.get('acne_score', 0),
-                    'severity': 'Needs Attention' if skin_data.get('acne_score', 0) > 60 else 'Average',
+                    'value': acne_value,
+                    'severity': 'Needs Attention' if acne_value > 60 else 'Average',
                     'description': f'Обнаружены признаки акне. Рекомендуется консультация дерматолога.',
                     'area': 'face',
                     'position': {**position, 'type': 'point'}
                 })
         else:
-            position = segment_face_area('acne', skin_data.get('acne_score', 0))
+            # Простые эвристики
+            if not methods_used:
+                methods_used.append("Простые эвристики")
+            position = segment_face_area('acne', acne_value)
             concerns.append({
                 'name': 'Акне',
                 'tech_name': 'acne',
-                'value': skin_data.get('acne_score', 0),
-                'severity': 'Needs Attention' if skin_data.get('acne_score', 0) > 60 else 'Average',
+                'value': acne_value,
+                'severity': 'Needs Attention' if acne_value > 60 else 'Average',
                 'description': f'Обнаружены признаки акне. Рекомендуется консультация дерматолога.',
                 'area': 'face',
                 'position': position
@@ -804,27 +875,51 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None, image_
     
     # Пигментация - теперь отображается как точки
     if skin_data.get('pigmentation_score', 0) > 40:
-        if 'pigmentation' in bounding_boxes and bounding_boxes['pigmentation']:
+        pigmentation_value = skin_data.get('pigmentation_score', 0)
+        
+        # Приоритет: HF маркеры > bounding boxes > отчёт > простые эвристики
+        if hf_markers.get('pigmentation'):
+            # Используем точные маркеры из HF сегментации (точки)
+            for marker in hf_markers['pigmentation']:
+                concerns.append({
+                    'name': 'Пигментация',
+                    'tech_name': 'pigmentation',
+                    'value': marker.get('value', pigmentation_value),
+                    'severity': 'Needs Attention' if pigmentation_value > 70 else 'Average',
+                    'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
+                    'area': 'face',
+                    'position': {
+                        'x': marker['x'],
+                        'y': marker['y'],
+                        'width': marker.get('width', 2),
+                        'height': marker.get('height', 2),
+                        'shape': 'dot',
+                        'type': 'point',
+                        'marker_type': 'dot'
+                    },
+                    'is_dot': True
+                })
+        elif 'pigmentation' in bounding_boxes and bounding_boxes['pigmentation']:
             # Используем координаты из bounding boxes - каждая точка отдельно
             for bbox in bounding_boxes['pigmentation']:
                 position = convert_bbox_to_position(bbox)
                 concerns.append({
                     'name': 'Пигментация',
                     'tech_name': 'pigmentation',
-                    'value': skin_data.get('pigmentation_score', 0),
-                    'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
+                    'value': pigmentation_value,
+                    'severity': 'Needs Attention' if pigmentation_value > 70 else 'Average',
                     'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
                     'area': 'face',
                     'position': {**position, 'type': 'point', 'marker_type': 'dot'},
-                    'is_dot': True  # Флаг для отображения как точки
+                    'is_dot': True
                 })
         elif 'pigmentation' in report_locations and ('щёки' in str(report_locations['pigmentation']) or 'щеки' in str(report_locations['pigmentation'])):
             # Создаём точки на обеих щеках
             concerns.append({
                 'name': 'Пигментация',
                 'tech_name': 'pigmentation',
-                'value': skin_data.get('pigmentation_score', 0),
-                'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
+                'value': pigmentation_value,
+                'severity': 'Needs Attention' if pigmentation_value > 70 else 'Average',
                 'description': f'Замечены участки пигментации на щеках. Используйте солнцезащитный крем.',
                 'area': 'face',
                 'position': {'x': 25, 'y': 45, 'zone': 'left_cheek', 'type': 'point', 'marker_type': 'dot'},
@@ -833,20 +928,22 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None, image_
             concerns.append({
                 'name': 'Пигментация',
                 'tech_name': 'pigmentation',
-                'value': skin_data.get('pigmentation_score', 0),
-                'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
+                'value': pigmentation_value,
+                'severity': 'Needs Attention' if pigmentation_value > 70 else 'Average',
                 'description': f'Замечены участки пигментации на щеках. Используйте солнцезащитный крем.',
                 'area': 'face',
                 'position': {'x': 75, 'y': 45, 'zone': 'right_cheek', 'type': 'point', 'marker_type': 'dot'},
                 'is_dot': True
             })
         else:
-            position = segment_face_area('pigmentation', skin_data.get('pigmentation_score', 0))
+            if not methods_used:
+                methods_used.append("Простые эвристики")
+            position = segment_face_area('pigmentation', pigmentation_value)
             concerns.append({
                 'name': 'Пигментация',
                 'tech_name': 'pigmentation',
-                'value': skin_data.get('pigmentation_score', 0),
-                'severity': 'Needs Attention' if skin_data.get('pigmentation_score', 0) > 70 else 'Average',
+                'value': pigmentation_value,
+                'severity': 'Needs Attention' if pigmentation_value > 70 else 'Average',
                 'description': f'Замечены участки пигментации. Используйте солнцезащитный крем.',
                 'area': 'face',
                 'position': {**position, 'type': 'point', 'marker_type': 'dot'},
@@ -866,17 +963,41 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None, image_
         })
     
     if skin_data.get('wrinkles_grade', 0) > 40:
-        # Морщины отображаются по их формам (используя bounding boxes)
-        if 'wrinkles' in bounding_boxes and bounding_boxes['wrinkles']:
-            # Используем координаты из bounding boxes - каждая морщина отдельно
-            for bbox in bounding_boxes['wrinkles']:
-                position = convert_bbox_to_position(bbox)
-                # Морщины отображаются как области, повторяющие их форму
+        wrinkles_value = skin_data.get('wrinkles_grade', 0)
+        
+        # Приоритет: HF маркеры > bounding boxes > отчёт > простые эвристики
+        if hf_markers.get('wrinkles'):
+            # Используем точные маркеры из HF сегментации
+            for marker in hf_markers['wrinkles']:
                 concerns.append({
                     'name': 'Морщины',
                     'tech_name': 'wrinkles',
-                    'value': skin_data.get('wrinkles_grade', 0),
-                    'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
+                    'value': marker.get('value', wrinkles_value),
+                    'severity': 'Needs Attention' if wrinkles_value > 60 else 'Average',
+                    'description': f'Замечены морщины. Увлажнение и защита от солнца помогут.',
+                    'area': 'face',
+                    'position': {
+                        'x': marker['x'],
+                        'y': marker['y'],
+                        'width': marker['width'],
+                        'height': marker['height'],
+                        'shape': marker.get('shape', 'wrinkle'),
+                        'svg_path': marker.get('svg_path'),
+                        'points': marker.get('points'),
+                        'type': 'area',
+                        'is_wrinkle': True
+                    },
+                    'is_area': True
+                })
+        elif 'wrinkles' in bounding_boxes and bounding_boxes['wrinkles']:
+            # Используем координаты из bounding boxes - каждая морщина отдельно
+            for bbox in bounding_boxes['wrinkles']:
+                position = convert_bbox_to_position(bbox)
+                concerns.append({
+                    'name': 'Морщины',
+                    'tech_name': 'wrinkles',
+                    'value': wrinkles_value,
+                    'severity': 'Needs Attention' if wrinkles_value > 60 else 'Average',
                     'description': f'Замечены морщины. Увлажнение и защита от солнца помогут.',
                     'area': 'face',
                     'position': {**position, 'type': 'area', 'shape': 'wrinkle', 'is_wrinkle': True},
@@ -921,19 +1042,46 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None, image_
                 })
         else:
             # По умолчанию создаём области для морщин с эллиптической формой
-            position = segment_face_area('wrinkles', skin_data.get('wrinkles_grade', 0))
+            if not methods_used:
+                methods_used.append("Простые эвристики")
+            position = segment_face_area('wrinkles', wrinkles_value)
             concerns.append({
                 'name': 'Морщины',
                 'tech_name': 'wrinkles',
-                'value': skin_data.get('wrinkles_grade', 0),
-                'severity': 'Needs Attention' if skin_data.get('wrinkles_grade', 0) > 60 else 'Average',
+                'value': wrinkles_value,
+                'severity': 'Needs Attention' if wrinkles_value > 60 else 'Average',
                 'description': f'Замечены признаки старения. Увлажнение и защита от солнца помогут.',
                 'area': 'face',
                 'position': {**position, 'type': 'area', 'shape': position.get('shape', 'ellipse')},
                 'is_area': True
             })
     
+    # Папилломы (только через HF сегментацию)
+    if hf_markers.get('papillomas'):
+        for marker in hf_markers['papillomas']:
+            concerns.append({
+                'name': 'Папилломы',
+                'tech_name': 'papillomas',
+                'value': marker.get('value', 50),
+                'severity': 'Needs Attention',
+                'description': f'Обнаружены папилломы. Рекомендуется консультация дерматолога.',
+                'area': 'face',
+                'position': {
+                    'x': marker['x'],
+                    'y': marker['y'],
+                    'width': marker['width'],
+                    'height': marker['height'],
+                    'shape': marker.get('shape', 'ellipse'),
+                    'svg_path': marker.get('svg_path'),
+                    'points': marker.get('points'),
+                    'type': 'area'
+                },
+                'is_area': True
+            })
+    
     if skin_data.get('moisture_level', 0) < 50:
+        if not methods_used:
+            methods_used.append("Простые эвристики")
         position = segment_face_area('hydration', skin_data.get('moisture_level', 0))
         concerns.append({
             'name': 'Недостаточное увлажнение',
@@ -960,11 +1108,16 @@ def generate_heuristic_analysis(skin_data: Dict, report_text: str = None, image_
     else:
         summary = "Обнаружены проблемы, требующие внимания. Рекомендуется консультация специалиста."
     
+    # Определяем основной метод (самый точный из использованных)
+    primary_method = methods_used[0] if methods_used else "Простые эвристики"
+    
     return {
         'concerns': concerns,
         'summary': summary,
         'total_skin_score': max(0, min(100, 100 - total_score)),
-        'skin_health': 'Good' if total_score < 40 else 'Average' if total_score < 60 else 'Needs Attention'
+        'skin_health': 'Good' if total_score < 40 else 'Average' if total_score < 60 else 'Needs Attention',
+        'methods_used': methods_used,
+        'primary_method': primary_method
     }
 
 
@@ -1174,12 +1327,25 @@ def analyze_skin():
             logger.info("Генерация эвристического анализа с учётом текстового отчёта и сегментации")
             # Передаем image_bytes для сегментации
             heuristic_data = generate_heuristic_analysis(skin_data, report, image_bytes)
+            
+            # Формируем сообщение о методах
+            methods_used = heuristic_data.get('methods_used', [])
+            primary_method = heuristic_data.get('primary_method', 'Простые эвристики')
+            
+            if methods_used:
+                methods_text = ", ".join(methods_used)
+                message = f'Использован эвристический анализ: {methods_text}'
+            else:
+                message = 'Использован эвристический анализ с простыми эвристиками'
+            
             pixelbin_images = [{
                 'type': 'heuristic',
                 'heuristic_data': heuristic_data,
-                'message': 'Использован эвристический анализ с сегментацией'
+                'message': message,
+                'primary_method': primary_method,
+                'methods_used': methods_used
             }]
-            analysis_method = "heuristics"
+            analysis_method = f"heuristics ({primary_method})"
         
         return jsonify({
             "success": True,
