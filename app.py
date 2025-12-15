@@ -32,7 +32,7 @@ except ImportError:
 
 # Импорт для работы с HEIC (после logger)
 try:
-    from PIL import Image, ImageOps, ImageEnhance
+    from PIL import Image, ImageOps, ImageEnhance, ImageFilter
     from pillow_heif import register_heif_opener
     register_heif_opener()
     HEIC_SUPPORT = True
@@ -40,6 +40,16 @@ try:
 except ImportError:
     HEIC_SUPPORT = False
     logger.warning("pillow-heif не установлен, поддержка HEIC будет ограничена")
+
+# Импорт numpy и scipy для обработки масок
+try:
+    import numpy as np
+    from scipy import ndimage
+    NUMPY_AVAILABLE = True
+    logger.info("NumPy и SciPy доступны для обработки масок")
+except ImportError:
+    NUMPY_AVAILABLE = False
+    logger.warning("NumPy/SciPy не установлены, обработка масок будет ограничена")
 
 # Импорт модуля сегментации
 try:
@@ -759,6 +769,145 @@ def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int
     return {'statuses': statuses, 'mask_results': mask_results}
 
 
+def create_sam3_overlay_image(original_image_bytes: bytes, mask_results: Dict) -> Optional[str]:
+    """
+    Создаёт изображение с наложенными масками SAM3 на оригинальное фото.
+    Возвращает base64 строку готового изображения.
+    """
+    if not NUMPY_AVAILABLE:
+        logger.warning("NumPy/SciPy недоступны, наложение масок пропущено")
+        return None
+    
+    try:
+        # Загружаем оригинальное изображение
+        original = Image.open(io.BytesIO(original_image_bytes)).convert('RGB')
+        width, height = original.size
+        
+        # Затемняем оригинал для контраста
+        original_array = np.array(original).astype(float)
+        dimmed = (original_array * 0.25).astype(np.uint8)
+        dimmed_img = Image.fromarray(dimmed).convert('RGBA')
+        
+        # Слой для подсветки
+        highlight_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        
+        # Цвета для разных заболеваний
+        colors = {
+            'acne': (255, 0, 0), 'pimples': (255, 50, 50), 'pustules': (255, 20, 20),
+            'papules': (255, 100, 100), 'blackheads': (100, 0, 255), 'whiteheads': (255, 255, 0),
+            'comedones': (80, 0, 200), 'redness': (255, 100, 0), 'inflammation': (255, 150, 0),
+            'red spots': (255, 80, 80), 'rosacea': (255, 60, 100), 'irritation': (255, 120, 80),
+            'pigmentation': (200, 0, 255), 'hyperpigmentation': (180, 0, 200), 'dark spots': (255, 0, 255),
+            'age spots': (150, 0, 255), 'melasma': (160, 0, 180), 'sun spots': (140, 0, 200),
+            'freckles': (120, 50, 200), 'papillomas': (0, 255, 0), 'warts': (50, 255, 50),
+            'moles': (255, 200, 0), 'skin tags': (100, 255, 100), 'growths': (150, 255, 50),
+            'wrinkles': (0, 200, 255), 'fine lines': (100, 200, 255), 'deep wrinkles': (0, 150, 255),
+            'expression lines': (50, 180, 255), 'skin lesion': (0, 255, 255), 'scars': (255, 150, 255),
+            'post-acne marks': (255, 100, 200), 'post acne marks': (255, 100, 200),
+            'acne scars': (200, 100, 255), 'blemishes': (255, 120, 180), 'eczema': (255, 180, 100),
+            'dermatitis': (255, 120, 60), 'psoriasis': (255, 140, 80), 'dry skin': (200, 200, 100),
+            'texture issues': (180, 180, 200), 'enlarged pores': (100, 255, 200),
+            'open pores': (120, 255, 220), 'uneven skin tone': (220, 180, 255),
+            'discoloration': (200, 150, 255), 'broken capillaries': (255, 0, 100),
+            'spider veins': (200, 0, 150), 'sunburn': (255, 40, 0), 'peeling': (255, 220, 180),
+        }
+        
+        # Обрабатываем каждое заболевание
+        for disease, result in mask_results.items():
+            if not result or not isinstance(result, dict):
+                continue
+            
+            if 'masks' not in result or not result['masks']:
+                continue
+            
+            color = colors.get(disease, (255, 255, 255))
+            
+            for i, mask_data in enumerate(result['masks']):
+                if 'url' not in mask_data:
+                    continue
+                
+                try:
+                    mask_url = mask_data['url']
+                    # Загружаем маску
+                    mask_response = requests.get(mask_url, timeout=30)
+                    mask_response.raise_for_status()
+                    mask_img = Image.open(io.BytesIO(mask_response.content)).convert('L')
+                    
+                    # Масштабируем под размер оригинала
+                    if mask_img.size != (width, height):
+                        mask_img = mask_img.resize((width, height), Image.Resampling.LANCZOS)
+                    
+                    mask_array = np.array(mask_img)
+                    
+                    # Основное заполнение
+                    colored_fill = Image.new('RGBA', (width, height), color + (255,))
+                    mask_alpha = Image.fromarray(mask_array).convert('L')
+                    
+                    fill_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+                    fill_layer.paste(colored_fill, (0, 0), mask_alpha)
+                    
+                    # Толстая обводка
+                    mask_binary = (mask_array > 127).astype(np.uint8) * 255
+                    dilated = ndimage.binary_dilation(mask_binary, iterations=7).astype(np.uint8) * 255
+                    eroded = ndimage.binary_erosion(mask_binary, iterations=1).astype(np.uint8) * 255
+                    thick_border = dilated - eroded
+                    
+                    border_layer = Image.new('RGBA', (width, height), (255, 255, 255, 255))
+                    border_alpha = Image.fromarray(thick_border).convert('L')
+                    border_img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+                    border_img.paste(border_layer, (0, 0), border_alpha)
+                    
+                    # Двойное свечение
+                    glow1 = ndimage.binary_dilation(mask_binary, iterations=15).astype(np.uint8) * 255
+                    glow1 = glow1 - mask_binary
+                    glow1_img = Image.fromarray(glow1).convert('L').filter(ImageFilter.GaussianBlur(radius=7))
+                    glow1_colored = Image.new('RGBA', (width, height), color + (200,))
+                    glow1_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+                    glow1_layer.paste(glow1_colored, (0, 0), glow1_img)
+                    
+                    glow2 = ndimage.binary_dilation(mask_binary, iterations=25).astype(np.uint8) * 255
+                    glow2 = glow2 - mask_binary
+                    glow2_img = Image.fromarray(glow2).convert('L').filter(ImageFilter.GaussianBlur(radius=12))
+                    glow2_colored = Image.new('RGBA', (width, height), color + (120,))
+                    glow2_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+                    glow2_layer.paste(glow2_colored, (0, 0), glow2_img)
+                    
+                    # Объединяем слои
+                    highlight_layer = Image.alpha_composite(highlight_layer, glow2_layer)
+                    highlight_layer = Image.alpha_composite(highlight_layer, glow1_layer)
+                    highlight_layer = Image.alpha_composite(highlight_layer, fill_layer)
+                    highlight_layer = Image.alpha_composite(highlight_layer, border_img)
+                    
+                except Exception as e:
+                    logger.warning(f"Ошибка обработки маски {disease} #{i+1}: {e}")
+                    continue
+        
+        # Объединяем затемнённое изображение с подсветкой
+        result_img = Image.alpha_composite(dimmed_img, highlight_layer).convert('RGB')
+        
+        # Усиление контраста и цвета
+        enhancer = ImageEnhance.Contrast(result_img)
+        result_img = enhancer.enhance(2.2)
+        enhancer = ImageEnhance.Color(result_img)
+        result_img = enhancer.enhance(2.5)
+        enhancer = ImageEnhance.Brightness(result_img)
+        result_img = enhancer.enhance(1.3)
+        result_img = result_img.filter(ImageFilter.SHARPEN)
+        
+        # Конвертируем в base64
+        output = io.BytesIO()
+        result_img.save(output, format='JPEG', quality=95)
+        output.seek(0)
+        image_base64 = base64.b64encode(output.read()).decode('utf-8')
+        
+        logger.info("Изображение с наложенными масками SAM3 создано успешно")
+        return f"data:image/jpeg;base64,{image_base64}"
+        
+    except Exception as e:
+        logger.error(f"Ошибка создания изображения с масками: {e}")
+        return None
+
+
 def segment_face_area(concern_type: str, value: float) -> Dict:
     """Простой алгоритм сегментации лица для определения зон проблем с естественными формами"""
     # Базовые зоны лица в процентах от размера изображения с естественными формами
@@ -1420,14 +1569,25 @@ def analyze_skin():
 
             sam3_result = run_sam3_pipeline(image_bytes, selected_diseases, timeout=sam3_timeout)
             combined_statuses = statuses + sam3_result.get('statuses', [])
+            
+            # Создаём изображение с наложенными масками
+            overlay_image = None
+            mask_results = sam3_result.get('mask_results', {})
+            if mask_results:
+                overlay_image = create_sam3_overlay_image(image_bytes, mask_results)
+                if overlay_image:
+                    logger.info("✅ Изображение с масками SAM3 создано")
+                else:
+                    logger.warning("⚠️ Не удалось создать изображение с масками")
 
             pixelbin_images = [{
                 'type': 'sam3',
-                'sam3_results': sam3_result.get('mask_results', {}),
+                'sam3_results': mask_results,
                 'statuses': combined_statuses,
                 'timeout': sam3_timeout,
                 'diseases': list(selected_diseases.keys()),
-                'message': 'SAM3 анализ с масками'
+                'message': 'SAM3 анализ с масками',
+                'overlay_image': overlay_image  # Готовое изображение с наложенными масками
             }]
             analysis_method = "sam3"
             use_heuristics = False

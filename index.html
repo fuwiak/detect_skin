@@ -1482,6 +1482,18 @@
                     if (sam3Item) {
                         // SAM3 режим
                         setStatusLog(sam3Item.statuses || []);
+                        
+                        // Если есть готовое изображение с масками - показываем его на превью
+                        if (sam3Item.overlay_image) {
+                            const previewImage = document.getElementById('previewImage');
+                            if (previewImage) {
+                                previewImage.src = sam3Item.overlay_image;
+                                // Очищаем старые overlay, если есть
+                                clearSam3Overlay();
+                            }
+                        }
+                        
+                        // Показываем маски в галерее
                         displaySam3Masks(sam3Item.sam3_results || {});
                     } else {
                         setStatusLog([]);
@@ -1766,8 +1778,8 @@
                 gallerySection.style.display = 'none';
             }
 
-            // Дополнительно накладываем маски на превью с высоким контрастом
-            applySam3Overlay(sam3Results);
+            // Больше не накладываем маски на клиенте - это делается на бэкенде
+            // applySam3Overlay(sam3Results);
         }
 
         function clearSam3Overlay() {
