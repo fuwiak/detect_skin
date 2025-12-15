@@ -492,3 +492,4 @@ def get_hf_segmenter(hf_token: Optional[str] = None) -> HFSkinSegmenter:
         _hf_segmenter = HFSkinSegmenter(hf_token)
     return _hf_segmenter
 
+

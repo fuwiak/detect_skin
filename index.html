@@ -790,6 +790,20 @@
                         АНАЛИЗИРОВАТЬ
                     </button>
                 </div>
+                
+                <!-- SAM3 панель управления -->
+                <div id="sam3Controls" style="display:none; margin-top: 15px; padding: 12px; border: 1px solid #00ffff; background: rgba(0,255,255,0.05);">
+                    <h4 style="color:#ff00ff; margin-bottom:8px;">SAM3 параметры</h4>
+                    <label style="color:#00ffff; font-size:0.7em;">Таймаут (сек) <span id="sam3TimeoutValue">5</span> — чем больше таймаут, тем точнее, но медленнее</label>
+                    <input type="range" id="sam3Timeout" min="3" max="20" step="1" value="5" style="width:100%;" oninput="updateSam3Timeout(this.value)">
+                    
+                    <div style="margin-top:10px;">
+                        <label style="color:#00ffff; font-size:0.7em;">Выберите заболевания (включать/выключать)</label>
+                        <div id="sam3DiseasesList" style="display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:6px; margin-top:6px; color:#00ffff; font-size:0.65em;">
+                            <!-- чекбоксы будут сгенерированы скриптом -->
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="loading" id="loading">
@@ -798,6 +812,22 @@
             </div>
 
             <div class="error-message" id="errorMessage"></div>
+
+            <!-- Модальное окно выбора режима -->
+            <div class="modal-overlay" id="modeModal" style="display: none;">
+                <div class="modal-content">
+                    <h3 style="color: #ff00ff; margin-bottom: 15px; text-align: center;">Выберите режим анализа</h3>
+                    <p style="color: #00ffff; font-size: 0.6em; line-height: 1.6; margin-bottom: 15px; text-align: center;">
+                        <strong>Pixelbin</strong> — текущее поведение (Pixelbin → эвристики)<br>
+                        <strong>SAM3</strong> — сегментация через fal sam-3 с масками
+                    </p>
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <button class="upload-btn" style="flex:1;" onclick="selectMode('pixelbin')">Pixelbin</button>
+                        <button class="upload-btn" style="flex:1;" onclick="selectMode('sam3')">SAM3</button>
+                    </div>
+                    <button class="upload-btn" onclick="closeModeModal()" style="width: 100%;">Закрыть</button>
+                </div>
+            </div>
 
             <!-- Модальное окно для уведомления об эвристике -->
             <div class="modal-overlay" id="heuristicModal" style="display: none;">
@@ -819,6 +849,10 @@
             </div>
 
             <div class="results-section" id="resultsSection">
+                <div id="statusLogContainer" style="display:none; margin-bottom:15px; padding:10px; border:1px solid #00ffff; background: rgba(0,255,255,0.05);">
+                    <h4 style="color:#ff00ff; margin-bottom:8px;">Статус</h4>
+                    <pre id="statusLog" style="color:#00ffff; font-size:0.65em; white-space:pre-wrap; max-height:220px; overflow:auto; background:rgba(0,0,0,0.4); padding:8px; border:1px solid #00ffff;"></pre>
+                </div>
                 <div class="results-grid" id="resultsGrid"></div>
                 <div class="images-gallery" id="imagesGallery" style="display: none;">
                     <h3 style="color: #ff00ff; margin-bottom: 15px; text-align: center;" id="galleryTitle">СГЕНЕРИРОВАННЫЕ ИЗОБРАЖЕНИЯ</h3>
@@ -835,6 +869,31 @@
     <script>
         let currentImage = null;
         let currentLanguage = localStorage.getItem('skinAnalyzerLanguage') || 'ru';
+        let currentMode = 'pixelbin';
+        let sam3Timeout = 5;
+        const SAM3_DISEASES = [
+            {key: "acne", name: "Акне"},
+            {key: "pimples", name: "Прыщи"},
+            {key: "pustules", name: "Пустулы"},
+            {key: "papules", name: "Папулы"},
+            {key: "blackheads", name: "Черные точки"},
+            {key: "whiteheads", name: "Белые угри"},
+            {key: "comedones", name: "Комедоны"},
+            {key: "rosacea", name: "Розацеа"},
+            {key: "irritation", name: "Раздражение"},
+            {key: "pigmentation", name: "Пигментация"},
+            {key: "freckles", name: "Веснушки"},
+            {key: "papillomas", name: "Папилломы"},
+            {key: "warts", name: "Бородавки"},
+            {key: "moles", name: "Родинки"},
+            {key: "skin tags", name: "Кожные выросты"},
+            {key: "wrinkles", name: "Морщины"},
+            {key: "fine lines", name: "Мелкие морщины"},
+            {key: "skin lesion", name: "Повреждения"},
+            {key: "scars", name: "Шрамы"},
+            {key: "post acne marks", name: "Следы постакне"},
+            {key: "acne scars", name: "Шрамы от акне"},
+        ];
 
         // Translations
         const translations = {
@@ -920,6 +979,69 @@
                 headerSubtitle: 'DETECT DISEASE TYPE'
             }
         };
+
+        function openModeModal() {
+            const modal = document.getElementById('modeModal');
+            if (modal) modal.style.display = 'flex';
+        }
+
+        function closeModeModal() {
+            const modal = document.getElementById('modeModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function selectMode(mode) {
+            currentMode = mode;
+            closeModeModal();
+            const sam3Controls = document.getElementById('sam3Controls');
+            if (sam3Controls) {
+                sam3Controls.style.display = (mode === 'sam3') ? 'block' : 'none';
+            }
+        }
+
+        function updateSam3Timeout(val) {
+            sam3Timeout = parseInt(val);
+            const el = document.getElementById('sam3TimeoutValue');
+            if (el) el.textContent = val;
+        }
+
+        function renderSam3Diseases() {
+            const container = document.getElementById('sam3DiseasesList');
+            if (!container) return;
+            container.innerHTML = '';
+            SAM3_DISEASES.forEach(item => {
+                const label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.gap = '6px';
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.value = item.key;
+                cb.checked = true;
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(item.name));
+                container.appendChild(label);
+            });
+        }
+
+        function getSelectedSam3Diseases() {
+            const container = document.getElementById('sam3DiseasesList');
+            if (!container) return [];
+            return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+        }
+
+        function setStatusLog(statuses) {
+            const wrap = document.getElementById('statusLogContainer');
+            const pre = document.getElementById('statusLog');
+            if (!wrap || !pre) return;
+            if (statuses && statuses.length > 0) {
+                pre.textContent = statuses.join('\n');
+                wrap.style.display = 'block';
+            } else {
+                pre.textContent = '';
+                wrap.style.display = 'none';
+            }
+        }
 
         function t(key) {
             return translations[currentLanguage][key] || key;
@@ -1302,6 +1424,11 @@
             currentConfig.max_tokens = parseInt(document.getElementById('maxTokens').value);
             currentConfig.language = currentLanguage;  // Добавляем текущий язык
 
+            // SAM3 параметры
+            const sam3TimeoutValue = parseInt(document.getElementById('sam3Timeout').value || sam3Timeout);
+            const sam3Selected = getSelectedSam3Diseases();
+            setStatusLog([]); // очистить лог перед новым запросом
+
             console.log('Отправка запроса с конфигом:', currentConfig);
 
             // Показываем загрузку
@@ -1318,7 +1445,10 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     image: currentImage,
-                    config: currentConfig
+                    config: currentConfig,
+                    mode: currentMode,
+                    sam3_timeout: sam3TimeoutValue,
+                    sam3_diseases: sam3Selected
                 })
             })
             .then(response => {
@@ -1347,8 +1477,20 @@
                 if (data.data) {
                     displayResults(data.data);
                     
+                    const sam3Item = data.pixelbin_images && data.pixelbin_images.find(img => img.type === 'sam3');
+
+                    if (sam3Item) {
+                        // SAM3 режим
+                        setStatusLog(sam3Item.statuses || []);
+                        displaySam3Masks(sam3Item.sam3_results || {});
+                    } else {
+                        setStatusLog([]);
+                    }
+
                     // Проверяем, используется ли эвристика
-                    if (data.use_heuristics) {
+                    if (data.analysis_method && String(data.analysis_method).includes('sam3')) {
+                        // ничего не делаем, сам3 уже отображён
+                    } else if (data.use_heuristics) {
                         // Получаем информацию о методах
                         let methodsInfo = "Простые эвристики";
                         let methodsList = [];
@@ -1386,7 +1528,7 @@
                                 displayHeuristicMarkers(heuristicItem.heuristic_data);
                             }
                         }
-                    } else {
+                    } else if (!sam3Item) {
                         // Показываем галерею изображений из Pixelbin, если есть
                         if (data.pixelbin_images && data.pixelbin_images.length > 0) {
                             displayImageGallery(data.pixelbin_images);
@@ -1579,6 +1721,52 @@
             document.getElementById('heuristicModal').style.display = 'none';
         }
 
+        function displaySam3Masks(sam3Results) {
+            const gallerySection = document.getElementById('imagesGallery');
+            const grid = document.getElementById('galleryGrid');
+            const title = document.getElementById('galleryTitle');
+            if (!gallerySection || !grid || !title) return;
+            grid.innerHTML = '';
+
+            const entries = Object.entries(sam3Results || {});
+            entries.forEach(([disease, result]) => {
+                const card = document.createElement('div');
+                card.className = 'image-card';
+
+                const header = document.createElement('div');
+                header.className = 'image-title';
+                header.textContent = disease;
+                card.appendChild(header);
+
+                if (result && result.masks && result.masks.length > 0) {
+                    result.masks.forEach(mask => {
+                        if (!mask.url) return;
+                        const img = document.createElement('img');
+                        img.src = mask.url;
+                        img.alt = `${disease} mask`;
+                        img.style.width = '100%';
+                        img.style.objectFit = 'contain';
+                        card.appendChild(img);
+                    });
+                } else {
+                    const empty = document.createElement('p');
+                    empty.style.color = '#00ffff';
+                    empty.style.fontSize = '0.7em';
+                    empty.textContent = 'Маски не найдены';
+                    card.appendChild(empty);
+                }
+
+                grid.appendChild(card);
+            });
+
+            if (entries.length > 0) {
+                gallerySection.style.display = 'block';
+                title.textContent = 'SAM3 МАСКИ';
+            } else {
+                gallerySection.style.display = 'none';
+            }
+        }
+
         function displayHeuristicMarkers(heuristicData) {
             const previewImage = document.getElementById('previewImage');
             if (!previewImage || !previewImage.src) return;
@@ -1729,6 +1917,9 @@
             await loadAvailableModels();
             await loadSettings();
             updateLanguage();
+            renderSam3Diseases();
+            updateSam3Timeout(sam3Timeout);
+            openModeModal();
         });
     </script>
 </body>

@@ -6,6 +6,9 @@ import os
 import base64
 import json
 import requests
+import tempfile
+import signal
+from contextlib import contextmanager
 import time
 import io
 from flask import Flask, request, jsonify, send_from_directory
@@ -17,6 +20,15 @@ import logging
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# fal_client для SAM3 (после инициализации логгера)
+try:
+    import fal_client
+    FAL_AVAILABLE = True
+except ImportError:
+    fal_client = None
+    FAL_AVAILABLE = False
+    logger.warning("fal_client не установлен, SAM3 режим недоступен")
 
 # Импорт для работы с HEIC (после logger)
 try:
@@ -65,6 +77,11 @@ PIXELBIN_HEADERS = {
     "Authorization": f"Bearer {PIXELBIN_BEARER_TOKEN}",
 } if PIXELBIN_BEARER_TOKEN else {}
 
+# Ключ для SAM3 (fal_client)
+FAL_KEY = os.getenv("FAL_KEY")
+if FAL_KEY:
+    os.environ['FAL_KEY'] = FAL_KEY
+
 if not PIXELBIN_ACCESS_TOKEN:
     logger.warning("PIXELBIN_ACCESS_TOKEN не найден в переменных окружения. Функциональность Pixelbin будет недоступна.")
 
@@ -83,6 +100,31 @@ DETECTION_FALLBACKS = [
     {"provider": "openrouter", "model": "x-ai/grok-4.1-fast:free"},  # Grok 4.1 Fast (бесплатная)
     {"provider": "openrouter", "model": "google/gemini-2.0-flash-001"}  # Google Gemini 2.0 Flash
 ]
+
+# Список заболеваний для SAM3 режима (ключ = prompt, значение = отображаемое имя)
+SAM3_DISEASES_DEFAULT = {
+    "acne": "Акне",
+    "pimples": "Прыщи",
+    "pustules": "Пустулы",
+    "papules": "Папулы",
+    "blackheads": "Черные точки",
+    "whiteheads": "Белые угри",
+    "comedones": "Комедоны",
+    "rosacea": "Розацеа",
+    "irritation": "Раздражение",
+    "pigmentation": "Пигментация",
+    "freckles": "Веснушки",
+    "papillomas": "Папилломы",
+    "warts": "Бородавки",
+    "moles": "Родинки",
+    "skin tags": "Кожные выросты",
+    "wrinkles": "Морщины",
+    "fine lines": "Мелкие морщины",
+    "skin lesion": "Повреждения",
+    "scars": "Шрамы",
+    "post acne marks": "Следы постакне",
+    "acne scars": "Шрамы от акне",
+}
 
 # Настройки моделей по умолчанию
 DEFAULT_VISION_MODEL = "google/gemini-2.5-flash"  # Для детекции (поддерживает bounding boxes)
@@ -624,6 +666,84 @@ def convert_heic_to_jpeg(image_bytes: bytes) -> bytes:
     except Exception as e:
         logger.error(f"Ошибка при конвертации HEIC: {e}")
         raise
+
+
+class TimeoutException(Exception):
+    """Исключение при превышении времени ожидания SAM3"""
+    pass
+
+
+@contextmanager
+def time_limit(seconds: int):
+    """Контекстный менеджер таймаута (аналогично примеру пользователя)"""
+    def signal_handler(signum, frame):
+        raise TimeoutException("Превышено время ожидания")
+    original_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, original_handler)
+
+
+def sam3_segment(image_path: str, text_prompt: str, timeout: int, statuses: List[str]):
+    """Вызов SAM3 через fal_client с таймаутом"""
+    if not FAL_AVAILABLE or not FAL_KEY:
+        statuses.append("❌ SAM3 недоступен (нет fal_client или FAL_KEY)")
+        return None
+    try:
+        with time_limit(timeout):
+            result = fal_client.subscribe(
+                "fal-ai/sam-3/image",
+                arguments={
+                    "image_url": fal_client.upload_file(image_path),
+                    "text_prompt": text_prompt
+                },
+                with_logs=False,
+            )
+            return result
+    except TimeoutException:
+        statuses.append(f"⏱️ ПРОПУЩЕНО (таймаут {timeout}с) для {text_prompt}")
+        return None
+    except Exception as e:
+        statuses.append(f"⚠️ Ошибка SAM3 для {text_prompt}: {e}")
+        return None
+
+
+def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int = 5) -> Dict:
+    """
+    Запускает последовательную сегментацию SAM3 по списку заболеваний.
+    Возвращает mask_results и статус-лог.
+    """
+    statuses = []
+    mask_results = {}
+
+    if not FAL_AVAILABLE or not FAL_KEY:
+        statuses.append("❌ SAM3 недоступен (нет fal_client или FAL_KEY)")
+        return {'statuses': statuses, 'mask_results': {}}
+
+    # Сохраняем изображение во временный файл
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
+        tmp.write(image_bytes)
+        tmp.flush()
+
+        total = len(diseases)
+        for idx, (disease_key, disease_name) in enumerate(diseases.items(), 1):
+            statuses.append(f"🔍 [{idx}/{total}] {disease_name.upper()}")
+            start = time.time()
+            result = sam3_segment(tmp.name, disease_key, timeout, statuses)
+            elapsed = time.time() - start
+
+            if result and isinstance(result, dict) and result.get('masks'):
+                count = len(result['masks'])
+                statuses.append(f"✅ {disease_name}: {count} маск ({elapsed:.1f}с)")
+                mask_results[disease_key] = result
+            else:
+                statuses.append(f"⚪ {disease_name}: нет масок ({elapsed:.1f}с)")
+
+    return {'statuses': statuses, 'mask_results': mask_results}
 
 
 def segment_face_area(concern_type: str, value: float) -> Dict:
@@ -1238,86 +1358,127 @@ def analyze_skin():
         logger.info(f"   Модель: {used_model}")
         logger.info("="*80)
         
-        # Интеграция с Pixelbin API для получения изображений
+        # Режим работы: pixelbin (по умолчанию) или sam3
+        mode = data.get('mode', 'pixelbin')
+        sam3_timeout = int(data.get('sam3_timeout', 5))
+        sam3_diseases = data.get('sam3_diseases', [])
+        selected_diseases = {
+            k: v for k, v in SAM3_DISEASES_DEFAULT.items()
+            if (not sam3_diseases or k in sam3_diseases)
+        }
+        if not selected_diseases:
+            selected_diseases = SAM3_DISEASES_DEFAULT
+
+        # Интеграция с Pixelbin API или SAM3
         pixelbin_images = []
         pixelbin_attempts = []
-        analysis_method = "pixelbin"
-        try:
-            # Декодируем base64 изображение в bytes
-            image_bytes = base64.b64decode(image_base64)
-            
-            # Конвертируем HEIC в JPEG, если нужно
-            filename = "image.jpg"
-            if mime_type and mime_type in ['image/heic', 'image/heif']:
-                if HEIC_SUPPORT:
-                    try:
-                        logger.info("Конвертация HEIC в JPEG...")
-                        image_bytes = convert_heic_to_jpeg(image_bytes)
-                        logger.info("HEIC успешно сконвертирован в JPEG")
-                    except Exception as e:
-                        logger.warning(f"Не удалось сконвертировать HEIC: {e}")
-                        # Продолжаем с оригинальным файлом
-                else:
-                    logger.warning("HEIC файл получен, но поддержка HEIC не доступна")
-            
-            # Готовим варианты для Pixelbin: оригинал + препроцесс
-            variants = [("pixelbin-original", image_bytes, filename)]
+        analysis_method = mode
+        use_heuristics = False
+
+        # Декодируем base64 изображение в bytes
+        image_bytes = base64.b64decode(image_base64)
+
+        # Конвертируем HEIC в JPEG, если нужно
+        filename = "image.jpg"
+        if mime_type and mime_type in ['image/heic', 'image/heif']:
+            if HEIC_SUPPORT:
+                try:
+                    logger.info("Конвертация HEIC в JPEG...")
+                    image_bytes = convert_heic_to_jpeg(image_bytes)
+                    logger.info("HEIC успешно сконвертирован в JPEG")
+                except Exception as e:
+                    logger.warning(f"Не удалось сконвертировать HEIC: {e}")
+            else:
+                logger.warning("HEIC файл получен, но поддержка HEIC не доступна")
+
+        if mode == "sam3":
+            statuses = []
+            statuses.append("🔧 ПРЕДОБРАБОТКА")
             preprocessed = PixelBinService.preprocess_for_pixelbin(image_bytes)
             if preprocessed:
-                variants.append(("pixelbin-preprocessed", preprocessed, "image-preprocessed.jpg"))
-            
-            # Отправляем в Pixelbin API (приоритет: оригинал, затем препроцесс)
-            pixelbin_result = None
+                image_bytes = preprocessed
+                statuses.append("✅ Предобработка выполнена")
+            else:
+                statuses.append("ℹ️ Предобработка пропущена")
+
+            statuses.append("================================================================================")
+            statuses.append(f"🔬 ДИАГНОСТИКА С ТАЙМАУТОМ {sam3_timeout} СЕКУНД")
+            statuses.append("================================================================================")
+
+            sam3_result = run_sam3_pipeline(image_bytes, selected_diseases, timeout=sam3_timeout)
+            combined_statuses = statuses + sam3_result.get('statuses', [])
+
+            pixelbin_images = [{
+                'type': 'sam3',
+                'sam3_results': sam3_result.get('mask_results', {}),
+                'statuses': combined_statuses,
+                'timeout': sam3_timeout,
+                'diseases': list(selected_diseases.keys()),
+                'message': 'SAM3 анализ с масками'
+            }]
+            analysis_method = "sam3"
             use_heuristics = False
-            for variant_name, variant_bytes, variant_filename in variants:
-                pixelbin_attempts.append(variant_name)
-                pixelbin_result = PixelBinService.upload_image(variant_bytes, variant_filename)
+            pixelbin_attempts.append("sam3")
+
+        else:
+            try:
+                # Готовим варианты для Pixelbin: оригинал + препроцесс
+                variants = [("pixelbin-original", image_bytes, filename)]
+                preprocessed = PixelBinService.preprocess_for_pixelbin(image_bytes)
+                if preprocessed:
+                    variants.append(("pixelbin-preprocessed", preprocessed, "image-preprocessed.jpg"))
                 
-                # Если лимит/блок — дальше нет смысла пытаться
-                if pixelbin_result and pixelbin_result.get('error') in ['usage_limit_exceeded', 'rate_limit_exceeded']:
-                    use_heuristics = True
-                    pixelbin_result = None
-                    analysis_method = "heuristics"
-                    break
-                
-                # Если ошибка валидации/прочие — пробуем следующий вариант
-                if pixelbin_result and pixelbin_result.get('error'):
-                    logger.warning(f"Pixelbin попытка {variant_name} вернула ошибку {pixelbin_result.get('error')}, пробуем следующий вариант")
-                    pixelbin_result = None
-                    continue
-                
-                # Успешная постановка задачи
-                if pixelbin_result and '_id' in pixelbin_result:
-                    job_id = pixelbin_result['_id']
-                    logger.info(f"Pixelbin ({variant_name}): задача создана, job_id: {job_id}")
+                # Отправляем в Pixelbin API (приоритет: оригинал, затем препроцесс)
+                pixelbin_result = None
+                for variant_name, variant_bytes, variant_filename in variants:
+                    pixelbin_attempts.append(variant_name)
+                    pixelbin_result = PixelBinService.upload_image(variant_bytes, variant_filename)
                     
-                    final_result = PixelBinService.check_status(job_id, max_attempts=10, delay=3)
-                    
-                    if final_result and final_result.get('status') == 'SUCCESS':
-                        pixelbin_images = extract_images_from_pixelbin_response(final_result)
-                        logger.info(f"Pixelbin ({variant_name}): получено {len(pixelbin_images)} изображений")
-                        analysis_method = "pixelbin"
+                    # Если лимит/блок — дальше нет смысла пытаться
+                    if pixelbin_result and pixelbin_result.get('error') in ['usage_limit_exceeded', 'rate_limit_exceeded']:
+                        use_heuristics = True
+                        pixelbin_result = None
+                        analysis_method = "heuristics"
                         break
-                    else:
-                        if final_result and final_result.get('error'):
-                            error_type = final_result.get('error')
-                            status_code = final_result.get('status_code', 0)
-                            logger.warning(f"Pixelbin ({variant_name}): ошибка API при проверке статуса ({error_type}, {status_code}), пробуем следующий вариант")
-                        else:
-                            logger.warning(f"Pixelbin ({variant_name}): задача не завершена или завершилась с ошибкой, пробуем следующий вариант")
+                    
+                    # Если ошибка валидации/прочие — пробуем следующий вариант
+                    if pixelbin_result and pixelbin_result.get('error'):
+                        logger.warning(f"Pixelbin попытка {variant_name} вернула ошибку {pixelbin_result.get('error')}, пробуем следующий вариант")
                         pixelbin_result = None
                         continue
-            
-            if not pixelbin_images:
-                # Все попытки Pixelbin не дали результата — эвристики
-                logger.warning("Pixelbin: все попытки не дали результата, переключаемся на эвристики")
+                    
+                    # Успешная постановка задачи
+                    if pixelbin_result and '_id' in pixelbin_result:
+                        job_id = pixelbin_result['_id']
+                        logger.info(f"Pixelbin ({variant_name}): задача создана, job_id: {job_id}")
+                        
+                        final_result = PixelBinService.check_status(job_id, max_attempts=10, delay=3)
+                        
+                        if final_result and final_result.get('status') == 'SUCCESS':
+                            pixelbin_images = extract_images_from_pixelbin_response(final_result)
+                            logger.info(f"Pixelbin ({variant_name}): получено {len(pixelbin_images)} изображений")
+                            analysis_method = "pixelbin"
+                            break
+                        else:
+                            if final_result and final_result.get('error'):
+                                error_type = final_result.get('error')
+                                status_code = final_result.get('status_code', 0)
+                                logger.warning(f"Pixelbin ({variant_name}): ошибка API при проверке статуса ({error_type}, {status_code}), пробуем следующий вариант")
+                            else:
+                                logger.warning(f"Pixelbin ({variant_name}): задача не завершена или завершилась с ошибкой, пробуем следующий вариант")
+                            pixelbin_result = None
+                            continue
+                
+                if not pixelbin_images:
+                    # Все попытки Pixelbin не дали результата — эвристики
+                    logger.warning("Pixelbin: все попытки не дали результата, переключаемся на эвристики")
+                    use_heuristics = True
+                    analysis_method = "heuristics"
+            except Exception as e:
+                logger.warning(f"Ошибка при работе с Pixelbin API: {e}, используем эвристики")
+                # При любой ошибке используем эвристики
                 use_heuristics = True
                 analysis_method = "heuristics"
-        except Exception as e:
-            logger.warning(f"Ошибка при работе с Pixelbin API: {e}, используем эвристики")
-            # При любой ошибке используем эвристики
-            use_heuristics = True
-            analysis_method = "heuristics"
         
         # Генерируем текстовый отчёт
         report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature, language)

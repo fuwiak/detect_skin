@@ -13,4 +13,5 @@ numpy>=1.24.0
 transformers>=4.30.0
 opencv-python>=4.8.0
 scikit-image>=0.21.0
+fal-client>=0.4.1
 
