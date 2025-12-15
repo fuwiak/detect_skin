@@ -1796,6 +1796,9 @@
 
             let overlay = document.getElementById('sam3OverlayCanvas');
             const container = document.getElementById('heuristicMarkersContainer') || previewImage.parentNode;
+            if (container && getComputedStyle(container).position === 'static') {
+                container.style.position = 'relative';
+            }
             if (!overlay) {
                 overlay = document.createElement('canvas');
                 overlay.id = 'sam3OverlayCanvas';
@@ -1804,6 +1807,7 @@
                 overlay.style.left = '0';
                 overlay.style.pointerEvents = 'none';
                 overlay.style.mixBlendMode = 'screen';
+                overlay.style.zIndex = '5';
                 container.appendChild(overlay);
             }
 
@@ -1839,7 +1843,9 @@
                 img.onerror = () => {
                     loaded += 1;
                 };
-                img.src = maskObj.url;
+                // Через прокси, чтобы избежать CORS (fal.media / pixelbin)
+                const proxied = `/api/proxy-image?url=${encodeURIComponent(maskObj.url)}`;
+                img.src = proxied;
             });
         }
 

@@ -1541,14 +1541,15 @@ def analyze_skin():
 
 @app.route('/api/proxy-image', methods=['GET'])
 def proxy_image():
-    """Прокси для загрузки изображений Pixelbin (обход CORS)"""
+    """Прокси для загрузки изображений (Pixelbin/FAL) для обхода CORS"""
     try:
         image_url = request.args.get('url')
         if not image_url:
             return jsonify({"error": "URL не предоставлен"}), 400
         
-        # Проверяем, что URL от Pixelbin
-        if 'delivery.pixelbin.io' not in image_url and 'pixelbin.io' not in image_url:
+        # Разрешённые домены: Pixelbin и fal.media
+        allowed_domains = ['delivery.pixelbin.io', 'pixelbin.io', 'fal.media', '.fal.media', 'v3b.fal.media']
+        if not any(domain in image_url for domain in allowed_domains):
             return jsonify({"error": "Недопустимый URL"}), 400
         
         # Загружаем изображение
