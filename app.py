@@ -136,6 +136,31 @@ SAM3_DISEASES_DEFAULT = {
     "acne scars": "Шрамы от акне",
 }
 
+# Улучшенные промпты для SAM3 с детальными описаниями (few-shot через описания)
+SAM3_ENHANCED_PROMPTS = {
+    "acne": "acne, pimples, inflamed red bumps on skin, raised red spots, pustules with white or yellow centers",
+    "pimples": "pimples, small raised red bumps on skin, inflamed spots, zits, blemishes",
+    "pustules": "pustules, pus-filled bumps, white or yellow-headed pimples, infected acne lesions",
+    "papules": "papules, small raised solid bumps on skin, red or pink bumps without pus",
+    "blackheads": "blackheads, open comedones, dark spots in pores, clogged pores with dark centers",
+    "whiteheads": "whiteheads, closed comedones, small white bumps under skin, milia",
+    "comedones": "comedones, clogged pores, blackheads and whiteheads, blocked hair follicles",
+    "rosacea": "rosacea, facial redness, red patches on face, visible blood vessels, flushed skin",
+    "irritation": "skin irritation, red inflamed areas, rash, sensitive skin patches, redness",
+    "pigmentation": "pigmentation, dark spots, hyperpigmentation, brown spots, age spots, melasma, uneven skin tone",
+    "freckles": "freckles, small brown spots, ephelides, sun spots, light brown dots on skin",
+    "papillomas": "papillomas, small skin growths, raised bumps, benign tumors, warty growths",
+    "warts": "warts, rough skin growths, raised bumps with rough texture, viral warts, verruca",
+    "moles": "moles, nevi, dark brown or black spots, raised or flat pigmented lesions",
+    "skin tags": "skin tags, acrochordons, small fleshy growths hanging from skin, pedunculated skin growths, soft tissue tags, small raised bumps attached by a stalk, flesh-colored or slightly darker growths, multiple small tags clustered together, tags on neck, chest, or body folds, all skin tags including very small ones, tiny tags, medium tags, large tags, tags of any size, every single skin tag visible on the image",
+    "wrinkles": "wrinkles, fine lines, creases in skin, age lines, expression lines, deep folds",
+    "fine lines": "fine lines, small wrinkles, subtle creases, early signs of aging, delicate lines",
+    "skin lesion": "skin lesions, abnormal skin areas, damaged skin, skin abnormalities, skin changes",
+    "scars": "scars, healed wound marks, raised or depressed scar tissue, post-surgical scars, injury marks",
+    "post acne marks": "post-acne marks, dark spots after acne, hyperpigmentation from acne, acne scars, PIH (post-inflammatory hyperpigmentation)",
+    "acne scars": "acne scars, pitted scars, atrophic scars, depressed scars from acne, ice pick scars, boxcar scars",
+}
+
 # Настройки моделей по умолчанию
 DEFAULT_VISION_MODEL = "google/gemini-2.5-flash"  # Для детекции (поддерживает bounding boxes)
 DEFAULT_TEXT_MODEL = "anthropic/claude-3.5-sonnet"  # Для генерации отчёта
@@ -706,18 +731,22 @@ def run_with_timeout(func, timeout: int, *args, **kwargs):
     return result_container["result"], None
 
 
-def sam3_segment(image_path: str, text_prompt: str, timeout: int, statuses: List[str]):
-    """Вызов SAM3 через fal_client с таймаутом"""
+def sam3_segment(image_path: str, disease_key: str, timeout: int, statuses: List[str]):
+    """Вызов SAM3 через fal_client с таймаутом и улучшенными промптами"""
     if not FAL_AVAILABLE or not FAL_KEY:
         statuses.append("❌ SAM3 недоступен (нет fal_client или FAL_KEY)")
         return None
     try:
+        # Используем улучшенный промпт с детальным описанием, если доступен
+        enhanced_prompt = SAM3_ENHANCED_PROMPTS.get(disease_key, disease_key)
+        logger.info(f"SAM3 промпт для {disease_key}: {enhanced_prompt[:100]}...")
+        
         def call_fal():
             return fal_client.subscribe(
                 "fal-ai/sam-3/image",
                 arguments={
                     "image_url": fal_client.upload_file(image_path),
-                    "text_prompt": text_prompt
+                    "text_prompt": enhanced_prompt
                 },
                 with_logs=False,
             )
@@ -725,13 +754,13 @@ def sam3_segment(image_path: str, text_prompt: str, timeout: int, statuses: List
         result, error = run_with_timeout(call_fal, timeout)
         if error:
             if isinstance(error, TimeoutException):
-                statuses.append(f"⏱️ ПРОПУЩЕНО (таймаут {timeout}с) для {text_prompt}")
+                statuses.append(f"⏱️ ПРОПУЩЕНО (таймаут {timeout}с) для {disease_key}")
             else:
-                statuses.append(f"⚠️ Ошибка SAM3 для {text_prompt}: {error}")
+                statuses.append(f"⚠️ Ошибка SAM3 для {disease_key}: {error}")
             return None
         return result
     except Exception as e:
-        statuses.append(f"⚠️ Ошибка SAM3 для {text_prompt}: {e}")
+        statuses.append(f"⚠️ Ошибка SAM3 для {disease_key}: {e}")
         return None
 
 
@@ -755,8 +784,15 @@ def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int
         total = len(diseases)
         for idx, (disease_key, disease_name) in enumerate(diseases.items(), 1):
             statuses.append(f"🔍 [{idx}/{total}] {disease_name.upper()}")
+            
+            # Увеличиваем таймаут для кожных меток и других образований, которые могут быть многочисленными
+            current_timeout = timeout
+            if disease_key in ["skin tags", "papillomas", "moles", "freckles", "pigmentation"]:
+                current_timeout = max(timeout, 10)  # Минимум 10 секунд для многочисленных образований
+                logger.info(f"Увеличенный таймаут для {disease_name}: {current_timeout}с")
+            
             start = time.time()
-            result = sam3_segment(tmp.name, disease_key, timeout, statuses)
+            result = sam3_segment(tmp.name, disease_key, current_timeout, statuses)
             elapsed = time.time() - start
 
             if result and isinstance(result, dict) and result.get('masks'):
