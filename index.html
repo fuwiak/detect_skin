@@ -1780,6 +1780,11 @@
         function applySam3Overlay(sam3Results) {
             const previewImage = document.getElementById('previewImage');
             if (!previewImage || !previewImage.src) return;
+            // Дожидаемся, пока изображение загрузится и будут размеры
+            if (!previewImage.complete || !previewImage.naturalWidth || !previewImage.naturalHeight) {
+                previewImage.onload = () => applySam3Overlay(sam3Results);
+                return;
+            }
             const entries = Object.entries(sam3Results || {});
             const masks = [];
             entries.forEach(([disease, result]) => {
@@ -1838,6 +1843,10 @@
                     ctx.fillStyle = colors[idx % colors.length];
                     ctx.fillRect(0, 0, overlay.width, overlay.height);
                     ctx.globalCompositeOperation = 'source-over';
+                    // Обводка для контраста
+                    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+                    ctx.lineWidth = Math.max(2, overlay.width * 0.002);
+                    ctx.drawImage(img, 0, 0, overlay.width, overlay.height);
                     loaded += 1;
                 };
                 img.onerror = () => {
