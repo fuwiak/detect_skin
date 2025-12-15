@@ -944,8 +944,71 @@ def sam3_segment(image_path: str, disease_key: str, timeout: int, statuses: List
         return None
 
 
+def filter_masks_by_coverage(masks: List[Dict], image_width: int, image_height: int, 
+                            max_coverage_percent: float = 25.0) -> List[Dict]:
+    """
+    Фильтрует маски, которые покрывают слишком большой процент изображения.
+    Кожные заболевания обычно проявляются как точечные изменения, а не покрывают всю область.
+    
+    Args:
+        masks: Список масок из SAM3
+        image_width: Ширина изображения
+        image_height: Высота изображения
+        max_coverage_percent: Максимальный процент покрытия (по умолчанию 25%)
+    
+    Returns:
+        Отфильтрованный список масок
+    """
+    if not masks or not NUMPY_AVAILABLE:
+        return masks
+    
+    total_image_pixels = image_width * image_height
+    filtered_masks = []
+    filtered_count = 0
+    
+    for mask_data in masks:
+        if 'url' not in mask_data:
+            filtered_masks.append(mask_data)
+            continue
+        
+        try:
+            # Загружаем маску
+            mask_response = requests.get(mask_data['url'], timeout=10)
+            mask_response.raise_for_status()
+            
+            mask_img = Image.open(io.BytesIO(mask_response.content))
+            if mask_img.mode != 'L':
+                mask_img = mask_img.convert('L')
+            
+            # Масштабируем под размер изображения
+            if mask_img.size != (image_width, image_height):
+                mask_img = mask_img.resize((image_width, image_height), Image.Resampling.LANCZOS)
+            
+            # Вычисляем процент покрытия
+            mask_array = np.array(mask_img)
+            mask_pixels = np.sum(mask_array > 127)  # Пиксели маски (непрозрачные)
+            coverage_percent = (mask_pixels / total_image_pixels) * 100
+            
+            # Фильтруем маски, которые покрывают слишком большую область
+            if coverage_percent <= max_coverage_percent:
+                filtered_masks.append(mask_data)
+                logger.debug(f"Маска принята: покрытие {coverage_percent:.2f}%")
+            else:
+                filtered_count += 1
+                logger.info(f"Маска отфильтрована: покрытие {coverage_percent:.2f}% > {max_coverage_percent}%")
+        
+        except Exception as e:
+            logger.warning(f"Ошибка при фильтрации маски: {e}, добавляем маску без проверки")
+            filtered_masks.append(mask_data)
+    
+    if filtered_count > 0:
+        logger.info(f"Отфильтровано {filtered_count} масок с покрытием > {max_coverage_percent}%")
+    
+    return filtered_masks
+
+
 def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int = 5, 
-                     use_llm_preanalysis: bool = True) -> Dict:
+                     use_llm_preanalysis: bool = True, max_mask_coverage_percent: float = 25.0) -> Dict:
     """
     Запускает последовательную сегментацию SAM3 по списку заболеваний.
     Использует RAG (базу знаний) и опционально LLM pre-analysis для улучшения промптов.
@@ -994,9 +1057,29 @@ def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int
             elapsed = time.time() - start
 
             if result and isinstance(result, dict) and result.get('masks'):
-                count = len(result['masks'])
-                statuses.append(f"✅ {disease_name}: {count} маск ({elapsed:.1f}с)")
-                mask_results[disease_key] = result
+                # Получаем размер изображения для фильтрации
+                image = Image.open(io.BytesIO(image_bytes))
+                img_width, img_height = image.size
+                
+                # Фильтруем маски по размеру покрытия (точечные изменения, а не большие области)
+                original_count = len(result['masks'])
+                filtered_masks = filter_masks_by_coverage(
+                    result['masks'], 
+                    img_width, 
+                    img_height, 
+                    max_coverage_percent=max_mask_coverage_percent
+                )
+                
+                if filtered_masks:
+                    result['masks'] = filtered_masks
+                    count = len(filtered_masks)
+                    if count < original_count:
+                        statuses.append(f"✅ {disease_name}: {count} маск (отфильтровано {original_count - count} больших масок) ({elapsed:.1f}с)")
+                    else:
+                        statuses.append(f"✅ {disease_name}: {count} маск ({elapsed:.1f}с)")
+                    mask_results[disease_key] = result
+                else:
+                    statuses.append(f"⚪ {disease_name}: все маски отфильтрованы (слишком большие) ({elapsed:.1f}с)")
             else:
                 statuses.append(f"⚪ {disease_name}: нет масок ({elapsed:.1f}с)")
 
@@ -1841,6 +1924,7 @@ def analyze_skin():
         sam3_timeout = int(data.get('sam3_timeout', 5))
         sam3_diseases = data.get('sam3_diseases', [])
         sam3_use_llm_preanalysis = data.get('sam3_use_llm_preanalysis', True)  # По умолчанию включено
+        sam3_max_coverage_percent = float(data.get('sam3_max_coverage_percent', 25.0))  # Максимальный процент покрытия маски
         selected_diseases = {
             k: v for k, v in SAM3_DISEASES_DEFAULT.items()
             if (not sam3_diseases or k in sam3_diseases)
@@ -1891,7 +1975,8 @@ def analyze_skin():
                 image_bytes, 
                 selected_diseases, 
                 timeout=sam3_timeout,
-                use_llm_preanalysis=sam3_use_llm_preanalysis
+                use_llm_preanalysis=sam3_use_llm_preanalysis,
+                max_mask_coverage_percent=sam3_max_coverage_percent
             )
             combined_statuses = statuses + sam3_result.get('statuses', [])
             
