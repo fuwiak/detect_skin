@@ -136,6 +136,77 @@ SAM3_DISEASES_DEFAULT = {
     "acne scars": "Шрамы от акне",
 }
 
+# База знаний о кожных заболеваниях (RAG-like knowledge base)
+SKIN_DISEASE_KNOWLEDGE_BASE = {
+    "skin tags": {
+        "description": "Skin tags (acrochordons) are small, soft, flesh-colored or slightly darker growths that hang from the skin. They are pedunculated (attached by a stalk), benign, and commonly found on neck, chest, armpits, groin, and under breasts.",
+        "characteristics": [
+            "Small to medium size (1-5mm typically, can be larger)",
+            "Flesh-colored, light brown, or slightly darker than skin",
+            "Pedunculated (hanging from a stalk)",
+            "Soft texture",
+            "Can appear singly or in clusters",
+            "Common on neck, chest, body folds",
+            "Benign, non-cancerous growths"
+        ],
+        "few_shot_examples": [
+            "Example 1: Multiple small flesh-colored tags clustered on the neck, ranging from 1-3mm, hanging from thin stalks",
+            "Example 2: Medium-sized tags (3-5mm) on chest area, slightly darker than surrounding skin, pedunculated",
+            "Example 3: Small tags in body folds, soft texture, flesh-colored with some having darker pigmentation"
+        ]
+    },
+    "papillomas": {
+        "description": "Papillomas are benign skin growths that can appear as raised bumps or warty growths. They may be caused by HPV or other factors.",
+        "characteristics": [
+            "Raised bumps on skin",
+            "Can be warty in appearance",
+            "Benign tumors",
+            "Various sizes",
+            "May have rough texture"
+        ]
+    },
+    "moles": {
+        "description": "Moles (nevi) are pigmented skin lesions that can be flat or raised, dark brown to black in color.",
+        "characteristics": [
+            "Dark brown or black spots",
+            "Can be raised or flat",
+            "Pigmented lesions",
+            "Various sizes and shapes",
+            "Usually benign but should be monitored"
+        ]
+    },
+    "freckles": {
+        "description": "Freckles are small, light brown spots that appear on sun-exposed skin, especially in fair-skinned individuals.",
+        "characteristics": [
+            "Small brown spots",
+            "Light brown color",
+            "Appear on sun-exposed areas",
+            "Flat, not raised",
+            "Can be numerous"
+        ]
+    },
+    "pigmentation": {
+        "description": "Pigmentation refers to dark spots, hyperpigmentation, age spots, melasma, or uneven skin tone.",
+        "characteristics": [
+            "Dark spots on skin",
+            "Brown or darker than surrounding skin",
+            "Can be flat or slightly raised",
+            "Various sizes",
+            "May appear in patches or scattered"
+        ]
+    },
+    "acne": {
+        "description": "Acne includes inflamed red bumps, pimples, pustules, and other acne lesions.",
+        "characteristics": [
+            "Inflamed red bumps",
+            "Raised spots",
+            "May have white or yellow centers (pustules)",
+            "Can be clustered or scattered",
+            "Common on face, chest, back"
+        ]
+    }
+}
+
 # Улучшенные промпты для SAM3 с детальными описаниями (few-shot через описания)
 SAM3_ENHANCED_PROMPTS = {
     "acne": "acne, pimples, inflamed red bumps on skin, raised red spots, pustules with white or yellow centers",
@@ -731,15 +802,124 @@ def run_with_timeout(func, timeout: int, *args, **kwargs):
     return result_container["result"], None
 
 
-def sam3_segment(image_path: str, disease_key: str, timeout: int, statuses: List[str]):
-    """Вызов SAM3 через fal_client с таймаутом и улучшенными промптами"""
+def generate_rag_enhanced_prompt(disease_key: str, base_prompt: str) -> str:
+    """
+    Генерирует улучшенный промпт используя RAG (базу знаний о заболеваниях)
+    Комбинирует базовый промпт с информацией из knowledge base
+    """
+    if disease_key not in SKIN_DISEASE_KNOWLEDGE_BASE:
+        return base_prompt
+    
+    knowledge = SKIN_DISEASE_KNOWLEDGE_BASE[disease_key]
+    
+    # Строим промпт с few-shot примерами и характеристиками
+    enhanced_parts = [base_prompt]
+    
+    # Добавляем характеристики
+    if "characteristics" in knowledge:
+        characteristics = ", ".join(knowledge["characteristics"])
+        enhanced_parts.append(f"Characteristics: {characteristics}")
+    
+    # Добавляем few-shot примеры
+    if "few_shot_examples" in knowledge and knowledge["few_shot_examples"]:
+        examples = " | ".join(knowledge["few_shot_examples"])
+        enhanced_parts.append(f"Examples: {examples}")
+    
+    return ". ".join(enhanced_parts)
+
+
+def analyze_image_for_sam3_prompts(image_base64: str) -> Optional[Dict[str, str]]:
+    """
+    Использует LLM для предварительного анализа изображения и генерации 
+    улучшенных промптов для SAM3 (RAG + LLM pre-analysis)
+    """
+    if not OPENROUTER_API_KEY:
+        return None
+    
+    try:
+        prompt = """Analyze this skin image and provide enhanced prompts for SAM3 segmentation model.
+For each visible skin condition, suggest specific, detailed descriptions that will help SAM3 accurately segment them.
+
+Focus on:
+- Specific visual characteristics (size, color, texture, shape)
+- Location patterns (clustered, scattered, specific body areas)
+- Distinguishing features that help identify the condition
+
+Return JSON with disease keys and enhanced prompts. Example:
+{
+  "skin tags": "multiple small flesh-colored pedunculated growths, 1-5mm, hanging from thin stalks, clustered on neck and chest",
+  "papillomas": "raised warty bumps, benign growths, various sizes"
+}
+
+Only include conditions that are clearly visible in the image."""
+        
+        url = OPENROUTER_API_URL
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:5000",
+            "X-Title": "Skin Analyzer"
+        }
+        
+        payload = {
+            "model": DEFAULT_VISION_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+                        }
+                    ]
+                }
+            ],
+            "temperature": 0.3,
+            "max_tokens": 500,
+            "response_format": {"type": "json_object"}
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        result = response.json()
+        
+        if "choices" in result and len(result["choices"]) > 0:
+            content = result["choices"][0]["message"]["content"]
+            try:
+                prompts = json.loads(content)
+                logger.info(f"LLM сгенерировал {len(prompts)} улучшенных промптов для SAM3")
+                return prompts
+            except json.JSONDecodeError:
+                logger.warning("Не удалось распарсить JSON от LLM для SAM3 промптов")
+                return None
+        
+        return None
+    except Exception as e:
+        logger.warning(f"Ошибка LLM pre-analysis для SAM3: {e}")
+        return None
+
+
+def sam3_segment(image_path: str, disease_key: str, timeout: int, statuses: List[str], 
+                 llm_enhanced_prompts: Optional[Dict[str, str]] = None):
+    """
+    Вызов SAM3 через fal_client с таймаутом и улучшенными промптами.
+    Использует RAG (базу знаний) и опционально LLM-enhanced промпты.
+    """
     if not FAL_AVAILABLE or not FAL_KEY:
         statuses.append("❌ SAM3 недоступен (нет fal_client или FAL_KEY)")
         return None
     try:
-        # Используем улучшенный промпт с детальным описанием, если доступен
-        enhanced_prompt = SAM3_ENHANCED_PROMPTS.get(disease_key, disease_key)
-        logger.info(f"SAM3 промпт для {disease_key}: {enhanced_prompt[:100]}...")
+        # Приоритет: LLM-enhanced промпт > RAG-enhanced > базовый
+        if llm_enhanced_prompts and disease_key in llm_enhanced_prompts:
+            enhanced_prompt = llm_enhanced_prompts[disease_key]
+            logger.info(f"SAM3 использует LLM-enhanced промпт для {disease_key}")
+        else:
+            base_prompt = SAM3_ENHANCED_PROMPTS.get(disease_key, disease_key)
+            enhanced_prompt = generate_rag_enhanced_prompt(disease_key, base_prompt)
+            logger.info(f"SAM3 использует RAG-enhanced промпт для {disease_key}")
+        
+        logger.info(f"SAM3 промпт для {disease_key}: {enhanced_prompt[:150]}...")
         
         def call_fal():
             return fal_client.subscribe(
@@ -764,9 +944,11 @@ def sam3_segment(image_path: str, disease_key: str, timeout: int, statuses: List
         return None
 
 
-def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int = 5) -> Dict:
+def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int = 5, 
+                     use_llm_preanalysis: bool = True) -> Dict:
     """
     Запускает последовательную сегментацию SAM3 по списку заболеваний.
+    Использует RAG (базу знаний) и опционально LLM pre-analysis для улучшения промптов.
     Возвращает mask_results и статус-лог.
     """
     statuses = []
@@ -775,6 +957,22 @@ def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int
     if not FAL_AVAILABLE or not FAL_KEY:
         statuses.append("❌ SAM3 недоступен (нет fal_client или FAL_KEY)")
         return {'statuses': statuses, 'mask_results': {}}
+
+    # LLM pre-analysis для генерации улучшенных промптов (RAG + LLM)
+    llm_enhanced_prompts = None
+    if use_llm_preanalysis and OPENROUTER_API_KEY:
+        statuses.append("🧠 LLM ПРЕДАНАЛИЗ: генерация улучшенных промптов...")
+        try:
+            # Конвертируем bytes в base64 для LLM
+            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+            llm_enhanced_prompts = analyze_image_for_sam3_prompts(image_base64)
+            if llm_enhanced_prompts:
+                statuses.append(f"✅ LLM сгенерировал {len(llm_enhanced_prompts)} улучшенных промптов")
+            else:
+                statuses.append("ℹ️ LLM pre-analysis недоступен, используем RAG промпты")
+        except Exception as e:
+            logger.warning(f"Ошибка LLM pre-analysis: {e}")
+            statuses.append("ℹ️ LLM pre-analysis пропущен, используем RAG промпты")
 
     # Сохраняем изображение во временный файл
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
@@ -792,7 +990,7 @@ def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int
                 logger.info(f"Увеличенный таймаут для {disease_name}: {current_timeout}с")
             
             start = time.time()
-            result = sam3_segment(tmp.name, disease_key, current_timeout, statuses)
+            result = sam3_segment(tmp.name, disease_key, current_timeout, statuses, llm_enhanced_prompts)
             elapsed = time.time() - start
 
             if result and isinstance(result, dict) and result.get('masks'):
@@ -1642,6 +1840,7 @@ def analyze_skin():
         mode = data.get('mode', 'pixelbin')
         sam3_timeout = int(data.get('sam3_timeout', 5))
         sam3_diseases = data.get('sam3_diseases', [])
+        sam3_use_llm_preanalysis = data.get('sam3_use_llm_preanalysis', True)  # По умолчанию включено
         selected_diseases = {
             k: v for k, v in SAM3_DISEASES_DEFAULT.items()
             if (not sam3_diseases or k in sam3_diseases)
@@ -1688,7 +1887,12 @@ def analyze_skin():
             statuses.append(f"🔬 ДИАГНОСТИКА С ТАЙМАУТОМ {sam3_timeout} СЕКУНД")
             statuses.append("================================================================================")
 
-            sam3_result = run_sam3_pipeline(image_bytes, selected_diseases, timeout=sam3_timeout)
+            sam3_result = run_sam3_pipeline(
+                image_bytes, 
+                selected_diseases, 
+                timeout=sam3_timeout,
+                use_llm_preanalysis=sam3_use_llm_preanalysis
+            )
             combined_statuses = statuses + sam3_result.get('statuses', [])
             
             # Создаём изображение с наложенными масками на ОРИГИНАЛЬНОЕ фото
