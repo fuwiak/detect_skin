@@ -673,19 +673,27 @@ class TimeoutException(Exception):
     pass
 
 
-@contextmanager
-def time_limit(seconds: int):
-    """Контекстный менеджер таймаута (аналогично примеру пользователя)"""
-    def signal_handler(signum, frame):
-        raise TimeoutException("Превышено время ожидания")
-    original_handler = signal.getsignal(signal.SIGALRM)
-    signal.signal(signal.SIGALRM, signal_handler)
-    signal.alarm(seconds)
-    try:
-        yield
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, original_handler)
+def run_with_timeout(func, timeout: int, *args, **kwargs):
+    """Запускает функцию в отдельном потоке и обрывает при превышении таймаута"""
+    import threading
+
+    result_container = {"result": None, "error": None}
+
+    def target():
+        try:
+            result_container["result"] = func(*args, **kwargs)
+        except Exception as e:
+            result_container["error"] = e
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout)
+
+    if thread.is_alive():
+        return None, TimeoutException(f"Превышено время ожидания {timeout}с")
+    if result_container["error"]:
+        return None, result_container["error"]
+    return result_container["result"], None
 
 
 def sam3_segment(image_path: str, text_prompt: str, timeout: int, statuses: List[str]):
@@ -694,8 +702,8 @@ def sam3_segment(image_path: str, text_prompt: str, timeout: int, statuses: List
         statuses.append("❌ SAM3 недоступен (нет fal_client или FAL_KEY)")
         return None
     try:
-        with time_limit(timeout):
-            result = fal_client.subscribe(
+        def call_fal():
+            return fal_client.subscribe(
                 "fal-ai/sam-3/image",
                 arguments={
                     "image_url": fal_client.upload_file(image_path),
@@ -703,10 +711,15 @@ def sam3_segment(image_path: str, text_prompt: str, timeout: int, statuses: List
                 },
                 with_logs=False,
             )
-            return result
-    except TimeoutException:
-        statuses.append(f"⏱️ ПРОПУЩЕНО (таймаут {timeout}с) для {text_prompt}")
-        return None
+
+        result, error = run_with_timeout(call_fal, timeout)
+        if error:
+            if isinstance(error, TimeoutException):
+                statuses.append(f"⏱️ ПРОПУЩЕНО (таймаут {timeout}с) для {text_prompt}")
+            else:
+                statuses.append(f"⚠️ Ошибка SAM3 для {text_prompt}: {error}")
+            return None
+        return result
     except Exception as e:
         statuses.append(f"⚠️ Ошибка SAM3 для {text_prompt}: {e}")
         return None
