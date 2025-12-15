@@ -1765,6 +1765,82 @@
             } else {
                 gallerySection.style.display = 'none';
             }
+
+            // Дополнительно накладываем маски на превью с высоким контрастом
+            applySam3Overlay(sam3Results);
+        }
+
+        function clearSam3Overlay() {
+            const overlay = document.getElementById('sam3OverlayCanvas');
+            if (overlay && overlay.parentNode) {
+                overlay.parentNode.removeChild(overlay);
+            }
+        }
+
+        function applySam3Overlay(sam3Results) {
+            const previewImage = document.getElementById('previewImage');
+            if (!previewImage || !previewImage.src) return;
+            const entries = Object.entries(sam3Results || {});
+            const masks = [];
+            entries.forEach(([disease, result]) => {
+                if (result && result.masks) {
+                    result.masks.forEach(m => {
+                        if (m.url) masks.push({ url: m.url, disease });
+                    });
+                }
+            });
+            if (masks.length === 0) {
+                clearSam3Overlay();
+                return;
+            }
+
+            let overlay = document.getElementById('sam3OverlayCanvas');
+            const container = document.getElementById('heuristicMarkersContainer') || previewImage.parentNode;
+            if (!overlay) {
+                overlay = document.createElement('canvas');
+                overlay.id = 'sam3OverlayCanvas';
+                overlay.style.position = 'absolute';
+                overlay.style.top = '0';
+                overlay.style.left = '0';
+                overlay.style.pointerEvents = 'none';
+                overlay.style.mixBlendMode = 'screen';
+                container.appendChild(overlay);
+            }
+
+            // Подгоняем размеры под отображение
+            const displayWidth = previewImage.clientWidth || previewImage.offsetWidth || previewImage.naturalWidth;
+            const displayHeight = previewImage.clientHeight || previewImage.offsetHeight || previewImage.naturalHeight;
+            overlay.width = previewImage.naturalWidth;
+            overlay.height = previewImage.naturalHeight;
+            overlay.style.width = `${displayWidth}px`;
+            overlay.style.height = `${displayHeight}px`;
+
+            const ctx = overlay.getContext('2d');
+            ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+            const colors = [
+                'rgba(255,0,128,0.6)', 'rgba(0,255,255,0.6)', 'rgba(255,255,0,0.6)',
+                'rgba(0,255,128,0.6)', 'rgba(255,128,0,0.6)', 'rgba(180,0,255,0.6)'
+            ];
+
+            let loaded = 0;
+            masks.forEach((maskObj, idx) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    // Рисуем маску, затем заливаем цветом через source-in
+                    ctx.drawImage(img, 0, 0, overlay.width, overlay.height);
+                    ctx.globalCompositeOperation = 'source-in';
+                    ctx.fillStyle = colors[idx % colors.length];
+                    ctx.fillRect(0, 0, overlay.width, overlay.height);
+                    ctx.globalCompositeOperation = 'source-over';
+                    loaded += 1;
+                };
+                img.onerror = () => {
+                    loaded += 1;
+                };
+                img.src = maskObj.url;
+            });
         }
 
         function displayHeuristicMarkers(heuristicData) {
