@@ -186,10 +186,18 @@ def main():
         time.sleep(3)
         check_status(result['_id'])
     
-    print("\n" + "=" * 60)
+    print("\n" + "=" * 60)ч
     print("ТЕСТИРОВАНИЕ ЗАВЕРШЕНО")
     print("=" * 60 + "\n")
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
 

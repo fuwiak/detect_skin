@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Импорт для работы с HEIC (после logger)
 try:
-    from PIL import Image
+    from PIL import Image, ImageOps, ImageEnhance
     from pillow_heif import register_heif_opener
     register_heif_opener()
     HEIC_SUPPORT = True
@@ -79,6 +79,8 @@ DETECTION_FALLBACKS = [
 DEFAULT_VISION_MODEL = "google/gemini-2.5-flash"  # Для детекции (поддерживает bounding boxes)
 DEFAULT_TEXT_MODEL = "anthropic/claude-3.5-sonnet"  # Для генерации отчёта
 
+HF_TOKEN = os.getenv("HF_TOKEN")  # Токен HuggingFace (Railway env)
+
 DEFAULT_CONFIG = {
     "detection_provider": "openrouter",
     "llm_provider": "openrouter",
@@ -88,9 +90,44 @@ DEFAULT_CONFIG = {
     "max_tokens": 300  # Краткие и лаконичные ответы
 }
 
+if HF_TOKEN:
+    logger.info("HF_TOKEN найден в окружении (Railway/.env)")
+else:
+    logger.warning("HF_TOKEN не найден. Задайте переменную окружения HF_TOKEN в Railway/.env")
+
 
 class PixelBinService:
     """Сервис для работы с Pixelbin API"""
+    
+    @staticmethod
+    def preprocess_for_pixelbin(image_bytes: bytes, max_size: int = 1024, contrast_factor: float = 1.15) -> Optional[bytes]:
+        """
+        Лёгкий препроцессинг, чтобы повысить шанс успешной валидации Pixelbin:
+        - авто-ориентация EXIF
+        - downscale до max_size по большей стороне (с сохранением пропорций)
+        - лёгкое повышение контраста
+        """
+        try:
+            with Image.open(io.BytesIO(image_bytes)) as img:
+                img = img.convert("RGB")
+                img = ImageOps.exif_transpose(img)
+                
+                # Масштабирование с сохранением пропорций
+                w, h = img.size
+                scale = min(max_size / max(w, h), 1.0)
+                if scale < 1.0:
+                    new_size = (int(w * scale), int(h * scale))
+                    img = img.resize(new_size, Image.LANCZOS)
+                
+                # Лёгкое повышение контраста
+                img = ImageEnhance.Contrast(img).enhance(contrast_factor)
+                
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=90)
+                return buf.getvalue()
+        except Exception as e:
+            logger.warning(f\"Preprocess Pixelbin не удался: {e}\")
+            return None
     
     @staticmethod
     def upload_image(image_data: bytes, filename: str = "image.jpg") -> Optional[Dict]:
@@ -1050,6 +1087,8 @@ def analyze_skin():
         
         # Интеграция с Pixelbin API для получения изображений
         pixelbin_images = []
+        pixelbin_attempts = []
+        analysis_method = "pixelbin"
         try:
             # Декодируем base64 изображение в bytes
             image_bytes = base64.b64decode(image_base64)
@@ -1068,65 +1107,64 @@ def analyze_skin():
                 else:
                     logger.warning("HEIC файл получен, но поддержка HEIC не доступна")
             
-            # Отправляем в Pixelbin API
-            pixelbin_result = PixelBinService.upload_image(image_bytes, filename)
+            # Готовим варианты для Pixelbin: оригинал + препроцесс
+            variants = [("pixelbin-original", image_bytes, filename)]
+            preprocessed = PixelBinService.preprocess_for_pixelbin(image_bytes)
+            if preprocessed:
+                variants.append(("pixelbin-preprocessed", preprocessed, "image-preprocessed.jpg"))
             
-            # Проверяем различные типы ошибок Pixelbin
+            # Отправляем в Pixelbin API (приоритет: оригинал, затем препроцесс)
+            pixelbin_result = None
             use_heuristics = False
-            if pixelbin_result and pixelbin_result.get('error'):
-                error_type = pixelbin_result.get('error')
-                status_code = pixelbin_result.get('status_code', 0)
+            for variant_name, variant_bytes, variant_filename in variants:
+                pixelbin_attempts.append(variant_name)
+                pixelbin_result = PixelBinService.upload_image(variant_bytes, variant_filename)
                 
-                if error_type == 'validation_failed':
-                    logger.warning("Pixelbin вернул ошибку валидации, используем эвристики")
+                # Если лимит/блок — дальше нет смысла пытаться
+                if pixelbin_result and pixelbin_result.get('error') in ['usage_limit_exceeded', 'rate_limit_exceeded']:
                     use_heuristics = True
-                elif error_type == 'usage_limit_exceeded':
-                    logger.warning("Pixelbin: достигнут лимит использования API, используем эвристики")
-                    use_heuristics = True
-                elif error_type == 'rate_limit_exceeded':
-                    logger.warning("Pixelbin: превышен лимит запросов, используем эвристики")
-                    use_heuristics = True
-                elif error_type == 'server_error':
-                    logger.warning(f"Pixelbin: ошибка сервера ({status_code}), используем эвристики")
-                    use_heuristics = True
-                elif error_type == 'api_error':
-                    logger.warning(f"Pixelbin: ошибка API ({status_code}), используем эвристики")
-                    use_heuristics = True
-                
-                if use_heuristics:
                     pixelbin_result = None
-            
-            if pixelbin_result and '_id' in pixelbin_result:
-                job_id = pixelbin_result['_id']
-                logger.info(f"Pixelbin: задача создана, job_id: {job_id}")
+                    analysis_method = "heuristics"
+                    break
                 
-                # Ждём завершения обработки
-                final_result = PixelBinService.check_status(job_id, max_attempts=10, delay=3)
+                # Если ошибка валидации/прочие — пробуем следующий вариант
+                if pixelbin_result and pixelbin_result.get('error'):
+                    logger.warning(f"Pixelbin попытка {variant_name} вернула ошибку {pixelbin_result.get('error')}, пробуем следующий вариант")
+                    pixelbin_result = None
+                    continue
                 
-                if final_result and final_result.get('status') == 'SUCCESS':
-                    # Извлекаем все изображения из ответа
-                    pixelbin_images = extract_images_from_pixelbin_response(final_result)
-                    logger.info(f"Pixelbin: получено {len(pixelbin_images)} изображений")
-                else:
-                    # Проверяем, была ли ошибка API в результате
-                    if final_result and final_result.get('error'):
-                        error_type = final_result.get('error')
-                        status_code = final_result.get('status_code', 0)
-                        if error_type in ['usage_limit_exceeded', 'rate_limit_exceeded', 'server_error', 'api_error']:
-                            logger.warning(f"Pixelbin: ошибка API при проверке статуса ({error_type}, {status_code}), используем эвристики")
-                        else:
-                            logger.warning(f"Pixelbin: задача завершилась с ошибкой ({error_type}), используем эвристики")
+                # Успешная постановка задачи
+                if pixelbin_result and '_id' in pixelbin_result:
+                    job_id = pixelbin_result['_id']
+                    logger.info(f"Pixelbin ({variant_name}): задача создана, job_id: {job_id}")
+                    
+                    final_result = PixelBinService.check_status(job_id, max_attempts=10, delay=3)
+                    
+                    if final_result and final_result.get('status') == 'SUCCESS':
+                        pixelbin_images = extract_images_from_pixelbin_response(final_result)
+                        logger.info(f"Pixelbin ({variant_name}): получено {len(pixelbin_images)} изображений")
+                        analysis_method = "pixelbin"
+                        break
                     else:
-                        logger.warning(f"Pixelbin: задача не завершена или завершилась с ошибкой, используем эвристики")
-                    use_heuristics = True
-            elif use_heuristics:
-                # Используем эвристический анализ (отчёт будет сгенерирован позже)
-                logger.info("Использование эвристического анализа вместо Pixelbin")
+                        if final_result and final_result.get('error'):
+                            error_type = final_result.get('error')
+                            status_code = final_result.get('status_code', 0)
+                            logger.warning(f"Pixelbin ({variant_name}): ошибка API при проверке статуса ({error_type}, {status_code}), пробуем следующий вариант")
+                        else:
+                            logger.warning(f"Pixelbin ({variant_name}): задача не завершена или завершилась с ошибкой, пробуем следующий вариант")
+                        pixelbin_result = None
+                        continue
+            
+            if not pixelbin_images:
+                # Все попытки Pixelbin не дали результата — эвристики
+                logger.warning("Pixelbin: все попытки не дали результата, переключаемся на эвристики")
                 use_heuristics = True
+                analysis_method = "heuristics"
         except Exception as e:
             logger.warning(f"Ошибка при работе с Pixelbin API: {e}, используем эвристики")
             # При любой ошибке используем эвристики
             use_heuristics = True
+            analysis_method = "heuristics"
         
         # Генерируем текстовый отчёт
         report = generate_report_with_llm(skin_data, llm_provider, text_model, temperature, language)
@@ -1141,6 +1179,7 @@ def analyze_skin():
                 'heuristic_data': heuristic_data,
                 'message': 'Использован эвристический анализ с сегментацией'
             }]
+            analysis_method = "heuristics"
         
         return jsonify({
             "success": True,
@@ -1150,7 +1189,9 @@ def analyze_skin():
             "model": used_model,
             "config": config,
             "pixelbin_images": pixelbin_images,  # Добавляем изображения из Pixelbin
-            "use_heuristics": use_heuristics  # Флаг использования эвристики
+            "use_heuristics": use_heuristics,  # Флаг использования эвристики
+            "analysis_method": analysis_method,
+            "pixelbin_attempts": pixelbin_attempts
         })
         
     except Exception as e:
