@@ -868,6 +868,8 @@
 
     <script>
         let currentImage = null;
+        let currentImageMimeType = null;
+        let originalFile = null; // Сохраняем оригинальный файл для отправки на сервер
         let currentLanguage = localStorage.getItem('skinAnalyzerLanguage') || 'ru';
         let currentMode = 'pixelbin';
         let sam3Timeout = 5;
@@ -1128,12 +1130,34 @@
         }
 
         async function handleFile(file) {
+            // Сохраняем оригинальный файл и его mime_type
+            originalFile = file;
+            currentImageMimeType = file.type || '';
+            
+            // Определяем mime_type по расширению файла, если не указан
+            if (!currentImageMimeType) {
+                const fileName = file.name.toLowerCase();
+                if (fileName.endsWith('.heic')) {
+                    currentImageMimeType = 'image/heic';
+                } else if (fileName.endsWith('.heif')) {
+                    currentImageMimeType = 'image/heif';
+                } else if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')) {
+                    currentImageMimeType = 'image/jpeg';
+                } else if (fileName.endsWith('.png')) {
+                    currentImageMimeType = 'image/png';
+                } else if (fileName.endsWith('.gif')) {
+                    currentImageMimeType = 'image/gif';
+                } else if (fileName.endsWith('.webp')) {
+                    currentImageMimeType = 'image/webp';
+                }
+            }
+            
             // Проверяем тип файла - поддерживаем изображения и HEIC/HEIF
             const isImage = file.type.startsWith('image/');
             const isHeic = file.name.toLowerCase().endsWith('.heic') || 
                           file.name.toLowerCase().endsWith('.heif') ||
-                          file.type === 'image/heic' || 
-                          file.type === 'image/heif' ||
+                          currentImageMimeType === 'image/heic' || 
+                          currentImageMimeType === 'image/heif' ||
                           file.type === '';
             
             if (!isImage && !isHeic) {
@@ -1141,7 +1165,8 @@
                 return;
             }
             
-            // Для HEIC файлов конвертируем в JPEG для preview
+            // Для HEIC файлов конвертируем в JPEG для preview (но оригинальный файл отправим на сервер)
+            let previewFile = file;
             if (isHeic && !isImage && typeof heic2any !== 'undefined') {
                 try {
                     console.log('Конвертация HEIC файла для preview:', file.name);
@@ -1151,7 +1176,7 @@
                     loadingText.textContent = 'КОНВЕРТАЦИЯ HEIC...';
                     document.getElementById('loading').classList.add('show');
                     
-                    // Конвертируем HEIC в JPEG
+                    // Конвертируем HEIC в JPEG только для preview
                     const convertedBlob = await heic2any({
                         blob: file,
                         toType: 'image/jpeg',
@@ -1161,24 +1186,22 @@
                     // heic2any может вернуть массив, берем первый элемент
                     const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
                     
-                    // Создаем новый File объект из конвертированного blob
-                    const convertedFile = new File([blob], file.name.replace(/\.(heic|heif)$/i, '.jpg'), {
+                    // Создаем новый File объект из конвертированного blob для preview
+                    previewFile = new File([blob], file.name.replace(/\.(heic|heif)$/i, '.jpg'), {
                         type: 'image/jpeg',
                         lastModified: file.lastModified
                     });
                     
-                    // Используем конвертированный файл
-                    file = convertedFile;
-                    console.log('HEIC успешно сконвертирован в JPEG');
+                    console.log('HEIC успешно сконвертирован в JPEG для preview');
                     
                     // Скрываем индикатор загрузки
                     document.getElementById('loading').classList.remove('show');
                     loadingText.textContent = originalText;
                 } catch (error) {
-                    console.error('Ошибка при конвертации HEIC:', error);
-                    showError('Ошибка при конвертации HEIC файла. Файл будет отправлен на сервер для конвертации.');
+                    console.error('Ошибка при конвертации HEIC для preview:', error);
+                    console.log('Используем оригинальный файл для preview');
                     document.getElementById('loading').classList.remove('show');
-                    // Продолжаем с оригинальным файлом
+                    // Продолжаем с оригинальным файлом для preview
                 }
             }
 
@@ -1195,11 +1218,13 @@
                 console.error('Ошибка при чтении файла:', error);
                 showError('Ошибка при чтении файла');
             };
-            reader.readAsDataURL(file);
+            reader.readAsDataURL(previewFile);
         }
 
         function resetImage() {
             currentImage = null;
+            currentImageMimeType = null;
+            originalFile = null;
             previewImage.src = '';
             fileInput.value = '';
             uploadSection.style.display = 'block';
@@ -1439,12 +1464,48 @@
             document.getElementById('reportSection').classList.remove('show');
             document.getElementById('imagesGallery').style.display = 'none';
 
+            // Подготавливаем изображение для отправки
+            // Если есть оригинальный HEIC файл, отправляем его, иначе отправляем currentImage
+            let imageToSend = currentImage;
+            let mimeTypeToSend = currentImageMimeType;
+            
+            // Если есть оригинальный HEIC файл, конвертируем его в base64 для отправки
+            if (originalFile && (currentImageMimeType === 'image/heic' || currentImageMimeType === 'image/heif')) {
+                console.log('Отправка оригинального HEIC файла на сервер для конвертации:', originalFile.name, 'mime_type:', mimeTypeToSend);
+                try {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        imageToSend = e.target.result;
+                        console.log('Оригинальный HEIC файл прочитан, размер base64:', imageToSend.length, 'символов');
+                        // Отправляем запрос после загрузки оригинального файла
+                        sendAnalyzeRequest(imageToSend, mimeTypeToSend, sam3TimeoutValue, sam3Selected);
+                    };
+                    reader.onerror = () => {
+                        console.warn('Не удалось прочитать оригинальный HEIC файл, используем конвертированное изображение');
+                        // Если не удалось прочитать оригинальный файл, используем currentImage
+                        sendAnalyzeRequest(currentImage, 'image/jpeg', sam3TimeoutValue, sam3Selected);
+                    };
+                    reader.readAsDataURL(originalFile);
+                    return; // Выходим, запрос будет отправлен в callback
+                } catch (error) {
+                    console.error('Ошибка при чтении оригинального файла:', error);
+                    // Продолжаем с currentImage
+                }
+            }
+            
+            // Отправляем запрос сразу, если не нужно читать оригинальный файл
+            console.log('Отправка изображения на сервер, mime_type:', mimeTypeToSend || 'image/jpeg');
+            sendAnalyzeRequest(imageToSend, mimeTypeToSend || 'image/jpeg', sam3TimeoutValue, sam3Selected);
+        }
+        
+        function sendAnalyzeRequest(imageData, mimeType, sam3TimeoutValue, sam3Selected) {
             // Реальный API вызов
             fetch('/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    image: currentImage,
+                    image: imageData,
+                    mime_type: mimeType,
                     config: currentConfig,
                     mode: currentMode,
                     sam3_timeout: sam3TimeoutValue,
