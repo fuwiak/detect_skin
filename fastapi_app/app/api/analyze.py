@@ -18,6 +18,7 @@ from app.services.llm_service import generate_report_with_llm
 from app.services.pixelbin_service import PixelBinService, extract_images_from_pixelbin_response
 from app.services.sam3_service import run_sam3_pipeline, create_sam3_overlay_image
 from app.services.segmentation_service import generate_heuristic_analysis
+from app.services.validation_service import validate_image
 from app.utils.image_utils import convert_heic_to_jpeg, detect_image_format
 from app.dependencies import HEIC_SUPPORT
 
@@ -242,6 +243,31 @@ async def analyze_skin(request: AnalyzeRequest):
         else:
             # Pixelbin режим - полная логика с вариантами
             try:
+                # Валидация изображения перед отправкой в Pixelbin
+                validation_result = validate_image(image_bytes, file_size=len(image_bytes), require_face=True)
+                
+                if not validation_result['valid']:
+                    error_msg = validation_result['error']
+                    logger.warning(f"Валидация изображения не пройдена: {error_msg}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=error_msg
+                    )
+                
+                # Добавляем предупреждения, если есть
+                if validation_result.get('warnings'):
+                    for warning in validation_result['warnings']:
+                        logger.warning(f"Предупреждение валидации: {warning}")
+                        if not warning_message:
+                            warning_message = warning
+                        else:
+                            warning_message += f"\n{warning}"
+                
+                # Логируем информацию о лице, если найдено
+                if validation_result.get('face_detected') and validation_result.get('face_info'):
+                    face_info = validation_result['face_info']
+                    logger.info(f"Найдено лицо на изображении: {face_info.get('count', 0)} лиц(а), размер самого большого: {face_info.get('largest', {}).get('width', 0)}x{face_info.get('largest', {}).get('height', 0)}")
+                
                 # Готовим варианты для Pixelbin: оригинал + препроцесс
                 variants = [("pixelbin-original", image_bytes, filename)]
                 preprocessed = PixelBinService.preprocess_for_pixelbin(image_bytes)

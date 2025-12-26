@@ -42,6 +42,10 @@ def analyze_image_with_openrouter(image_base64: str, model: str, temperature: fl
 7. moisture_level (0-100) - уровень увлажненности
 8. oiliness (0-100) - жирность кожи
 
+ДОПОЛНИТЕЛЬНО определи:
+9. gender - пол человека на фото: "мужчина" или "женщина"
+10. estimated_age - предположительный возраст в годах (целое число)
+
 Верни результат в формате JSON с этими полями. Для каждого обнаруженного дефекта (акне, пигментация, морщины) укажи координаты bounding box в формате [y_min, x_min, y_max, x_max], нормализованные к 0-1000. Для пигментации и веснушек укажи координаты каждой точки. Для морщин укажи координаты каждой морщины по её форме.
 
 Формат ответа:
@@ -54,6 +58,8 @@ def analyze_image_with_openrouter(image_base64: str, model: str, temperature: fl
   "texture_score": число,
   "moisture_level": число,
   "oiliness": число,
+  "gender": "мужчина" или "женщина",
+  "estimated_age": число,
   "bounding_boxes": {
     "acne": [[y_min, x_min, y_max, x_max], ...],
     "pigmentation": [[y_min, x_min, y_max, x_max], ...],
@@ -71,6 +77,10 @@ def analyze_image_with_openrouter(image_base64: str, model: str, temperature: fl
 6. texture_score (0-100) - текстура кожи
 7. moisture_level (0-100) - уровень увлажненности
 8. oiliness (0-100) - жирность кожи
+
+ДОПОЛНИТЕЛЬНО определи:
+9. gender - пол человека на фото: "мужчина" или "женщина"
+10. estimated_age - предположительный возраст в годах (целое число)
 
 Верни результат в формате JSON с этими полями. Кратко и лаконично опиши проблемы, укажи в каких местах на лице они находятся и сколько их."""
         

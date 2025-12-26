@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     hf_token: Optional[str] = None
     
     # Server
-    port: int = 8000  # Изменено с 5000, т.к. на macOS порт 5000 занят AirPlay
-    host: str = "127.0.0.1"  # Используйте 0.0.0.0 для доступа извне, localhost/127.0.0.1 для локального доступа
+    port: int = int(os.getenv("PORT", 8000))  # Railway автоматически устанавливает PORT
+    host: str = os.getenv("HOST", "0.0.0.0")  # 0.0.0.0 для Railway, 127.0.0.1 для локальной разработки
     
     class Config:
         env_file = ".env"

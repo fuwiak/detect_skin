@@ -1434,6 +1434,67 @@
             }
         }
 
+        // Валидация изображения на фронтенде
+        function validateImageFrontend(file) {
+            const MIN_FILE_SIZE = 1024; // 1 KB
+            const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+            const MIN_WIDTH = 256;
+            const MIN_HEIGHT = 256;
+            const MAX_WIDTH = 8192;
+            const MAX_HEIGHT = 8192;
+            
+            // Проверка размера файла
+            if (file.size < MIN_FILE_SIZE) {
+                return {
+                    valid: false,
+                    error: `Файл слишком маленький (${(file.size / 1024).toFixed(2)} KB). Минимальный размер: ${MIN_FILE_SIZE / 1024} KB.`
+                };
+            }
+            
+            if (file.size > MAX_FILE_SIZE) {
+                return {
+                    valid: false,
+                    error: `Файл слишком большой (${(file.size / 1024 / 1024).toFixed(2)} MB). Максимальный размер: ${MAX_FILE_SIZE / 1024 / 1024} MB.`
+                };
+            }
+            
+            return { valid: true };
+        }
+
+        function validateImageDimensions(imageData) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = function() {
+                    const MIN_WIDTH = 256;
+                    const MIN_HEIGHT = 256;
+                    const MAX_WIDTH = 8192;
+                    const MAX_HEIGHT = 8192;
+                    
+                    if (this.width < MIN_WIDTH || this.height < MIN_HEIGHT) {
+                        resolve({
+                            valid: false,
+                            error: `Разрешение изображения слишком маленькое (${this.width}x${this.height}). Минимальное разрешение: ${MIN_WIDTH}x${MIN_HEIGHT}.`
+                        });
+                        return;
+                    }
+                    
+                    if (this.width > MAX_WIDTH || this.height > MAX_HEIGHT) {
+                        resolve({
+                            valid: false,
+                            error: `Разрешение изображения слишком большое (${this.width}x${this.height}). Максимальное разрешение: ${MAX_WIDTH}x${MAX_HEIGHT}.`
+                        });
+                        return;
+                    }
+                    
+                    resolve({ valid: true, width: this.width, height: this.height });
+                };
+                img.onerror = function() {
+                    resolve({ valid: false, error: 'Не удалось загрузить изображение для проверки разрешения.' });
+                };
+                img.src = imageData;
+            });
+        }
+
         function analyzeSkin() {
             if (!currentImage) {
                 showError(t('loadImage'));
@@ -1464,38 +1525,59 @@
             document.getElementById('reportSection').classList.remove('show');
             document.getElementById('imagesGallery').style.display = 'none';
 
-            // Подготавливаем изображение для отправки
-            // Если есть оригинальный HEIC файл, отправляем его, иначе отправляем currentImage
-            let imageToSend = currentImage;
-            let mimeTypeToSend = currentImageMimeType;
-            
-            // Если есть оригинальный HEIC файл, конвертируем его в base64 для отправки
-            if (originalFile && (currentImageMimeType === 'image/heic' || currentImageMimeType === 'image/heif')) {
-                console.log('Отправка оригинального HEIC файла на сервер для конвертации:', originalFile.name, 'mime_type:', mimeTypeToSend);
-                try {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        imageToSend = e.target.result;
-                        console.log('Оригинальный HEIC файл прочитан, размер base64:', imageToSend.length, 'символов');
-                        // Отправляем запрос после загрузки оригинального файла
-                        sendAnalyzeRequest(imageToSend, mimeTypeToSend, sam3TimeoutValue, sam3Selected);
-                    };
-                    reader.onerror = () => {
-                        console.warn('Не удалось прочитать оригинальный HEIC файл, используем конвертированное изображение');
-                        // Если не удалось прочитать оригинальный файл, используем currentImage
-                        sendAnalyzeRequest(currentImage, 'image/jpeg', sam3TimeoutValue, sam3Selected);
-                    };
-                    reader.readAsDataURL(originalFile);
-                    return; // Выходим, запрос будет отправлен в callback
-                } catch (error) {
-                    console.error('Ошибка при чтении оригинального файла:', error);
-                    // Продолжаем с currentImage
+            // Валидация изображения на фронтенде
+            if (originalFile) {
+                const fileValidation = validateImageFrontend(originalFile);
+                if (!fileValidation.valid) {
+                    showError(fileValidation.error);
+                    document.getElementById('loading').classList.remove('show');
+                    analyzeBtn.disabled = false;
+                    return;
                 }
             }
             
-            // Отправляем запрос сразу, если не нужно читать оригинальный файл
-            console.log('Отправка изображения на сервер, mime_type:', mimeTypeToSend || 'image/jpeg');
-            sendAnalyzeRequest(imageToSend, mimeTypeToSend || 'image/jpeg', sam3TimeoutValue, sam3Selected);
+            // Проверка разрешения изображения
+            validateImageDimensions(currentImage).then(validation => {
+                if (!validation.valid) {
+                    showError(validation.error);
+                    document.getElementById('loading').classList.remove('show');
+                    analyzeBtn.disabled = false;
+                    return;
+                }
+                
+                // Подготавливаем изображение для отправки
+                // Если есть оригинальный HEIC файл, отправляем его, иначе отправляем currentImage
+                let imageToSend = currentImage;
+                let mimeTypeToSend = currentImageMimeType;
+            
+                // Если есть оригинальный HEIC файл, конвертируем его в base64 для отправки
+                if (originalFile && (currentImageMimeType === 'image/heic' || currentImageMimeType === 'image/heif')) {
+                    console.log('Отправка оригинального HEIC файла на сервер для конвертации:', originalFile.name, 'mime_type:', mimeTypeToSend);
+                    try {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            imageToSend = e.target.result;
+                            console.log('Оригинальный HEIC файл прочитан, размер base64:', imageToSend.length, 'символов');
+                            // Отправляем запрос после загрузки оригинального файла
+                            sendAnalyzeRequest(imageToSend, mimeTypeToSend, sam3TimeoutValue, sam3Selected);
+                        };
+                        reader.onerror = () => {
+                            console.warn('Не удалось прочитать оригинальный HEIC файл, используем конвертированное изображение');
+                            // Если не удалось прочитать оригинальный файл, используем currentImage
+                            sendAnalyzeRequest(currentImage, 'image/jpeg', sam3TimeoutValue, sam3Selected);
+                        };
+                        reader.readAsDataURL(originalFile);
+                        return; // Выходим, запрос будет отправлен в callback
+                    } catch (error) {
+                        console.error('Ошибка при чтении оригинального файла:', error);
+                        // Продолжаем с currentImage
+                    }
+                }
+                
+                // Отправляем запрос сразу, если не нужно читать оригинальный файл
+                console.log('Отправка изображения на сервер, mime_type:', mimeTypeToSend || 'image/jpeg');
+                sendAnalyzeRequest(imageToSend, mimeTypeToSend || 'image/jpeg', sam3TimeoutValue, sam3Selected);
+            });
         }
         
         function sendAnalyzeRequest(imageData, mimeType, sam3TimeoutValue, sam3Selected) {
@@ -2076,4 +2158,5 @@
     </script>
 </body>
 </html>
+
 
