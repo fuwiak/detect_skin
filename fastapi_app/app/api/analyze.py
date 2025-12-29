@@ -120,6 +120,13 @@ async def analyze_skin(request: AnalyzeRequest):
         used_provider = None
         used_model = None
         
+        # Логируем доступность API ключей
+        logger.info("=" * 80)
+        logger.info("🔍 Проверка доступности API:")
+        logger.info(f"   OpenRouter API Key: {'✅ доступен' if settings.openrouter_api_key else '❌ не найден'}")
+        logger.info(f"   Pixelbin Access Token: {'✅ доступен' if settings.pixelbin_access_token else '❌ не найден'}")
+        logger.info("=" * 80)
+        
         # Пробуем через OpenRouter
         if settings.openrouter_api_key:
             openrouter_models_to_try = []
@@ -142,13 +149,23 @@ async def analyze_skin(request: AnalyzeRequest):
                         logger.info(f"✅ Успешно использована модель: {model}")
                         break
                 except Exception as e:
-                    logger.debug(f"Модель {model} вызвала исключение: {e}")
+                    logger.warning(f"Модель {model} вызвала исключение: {e}")
                     continue
+        else:
+            logger.warning("⚠️ OpenRouter API ключ не найден. Проверьте переменную окружения OPENROUTER_API_KEY в Railway.")
         
         if not skin_data:
+            error_detail = "Все API недоступны. "
+            if not settings.openrouter_api_key:
+                error_detail += "OPENROUTER_API_KEY не найден в переменных окружения. "
+            error_detail += "Проверьте переменные окружения в Railway Dashboard → Variables и интернет-соединение."
+            logger.error("=" * 80)
+            logger.error("❌ ОШИБКА: Все API недоступны!")
+            logger.error(f"   OpenRouter API Key: {'✅' if settings.openrouter_api_key else '❌ НЕ НАЙДЕН'}")
+            logger.error("=" * 80)
             raise HTTPException(
                 status_code=503,
-                detail="Все API недоступны. Проверьте API ключи в .env файле и интернет-соединение."
+                detail=error_detail
             )
         
         # Декодируем base64 изображение в bytes

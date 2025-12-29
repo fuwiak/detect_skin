@@ -1,9 +1,11 @@
 """
 API endpoints для конфигурации
 """
+import os
 from fastapi import APIRouter
 from app.schemas.config import ConfigRequest, ConfigResponse
 from app.utils.constants import DEFAULT_CONFIG
+from app.config import settings
 
 router = APIRouter()
 
@@ -63,4 +65,66 @@ async def update_config(request: ConfigRequest):
         return ConfigResponse(success=True, config=current_config)
     except Exception as e:
         return ConfigResponse(success=False, config=current_config)
+
+
+@router.get(
+    "/config/env-check",
+    summary="Проверка переменных окружения",
+    description="Диагностический эндпоинт для проверки доступности API ключей (без показа самих ключей)"
+)
+async def check_env_variables():
+    """
+    Проверка переменных окружения
+    
+    Возвращает статус доступности API ключей без показа самих ключей.
+    Полезно для диагностики проблем с переменными окружения в Railway.
+    """
+    env_vars = {
+        "OPENROUTER_API_KEY": {
+            "available": bool(settings.openrouter_api_key),
+            "from_settings": bool(settings.openrouter_api_key),
+            "from_os_env": bool(os.getenv("OPENROUTER_API_KEY")),
+            "length": len(settings.openrouter_api_key) if settings.openrouter_api_key else 0
+        },
+        "PIXELBIN_ACCESS_TOKEN": {
+            "available": bool(settings.pixelbin_access_token),
+            "from_settings": bool(settings.pixelbin_access_token),
+            "from_os_env": bool(os.getenv("PIXELBIN_ACCESS_TOKEN")),
+            "length": len(settings.pixelbin_access_token) if settings.pixelbin_access_token else 0
+        },
+        "FAL_KEY": {
+            "available": bool(settings.fal_key),
+            "from_settings": bool(settings.fal_key),
+            "from_os_env": bool(os.getenv("FAL_KEY")),
+            "length": len(settings.fal_key) if settings.fal_key else 0
+        },
+        "HF_TOKEN": {
+            "available": bool(settings.hf_token),
+            "from_settings": bool(settings.hf_token),
+            "from_os_env": bool(os.getenv("HF_TOKEN")),
+            "length": len(settings.hf_token) if settings.hf_token else 0
+        },
+        "PORT": {
+            "available": True,
+            "value": os.getenv("PORT", "не установлен"),
+            "settings_value": settings.port
+        },
+        "HOST": {
+            "available": True,
+            "value": os.getenv("HOST", "не установлен"),
+            "settings_value": settings.host
+        }
+    }
+    
+    return {
+        "success": True,
+        "message": "Проверка переменных окружения",
+        "variables": env_vars,
+        "recommendations": {
+            "OPENROUTER_API_KEY": "Убедитесь, что переменная установлена в Railway Dashboard → Variables",
+            "PIXELBIN_ACCESS_TOKEN": "Убедитесь, что переменная установлена в Railway Dashboard → Variables",
+            "FAL_KEY": "Опционально, требуется только для SAM3",
+            "HF_TOKEN": "Опционально, требуется только для HuggingFace сегментации"
+        }
+    }
 
