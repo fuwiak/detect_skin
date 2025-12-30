@@ -93,11 +93,29 @@ async def analyze_skin(request: AnalyzeRequest):
     }
     ```
     """
+    import time
+    start_time = time.time()
+    
+    # Логируем начало запроса
+    logger.info("=" * 80)
+    logger.info("📥 НОВЫЙ ЗАПРОС НА АНАЛИЗ КОЖИ")
+    logger.info("=" * 80)
+    logger.info(f"⏰ Время начала: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"📋 Режим: {request.mode or 'pixelbin'}")
+    logger.info(f"📋 Конфигурация: {request.config.dict() if request.config else 'по умолчанию'}")
+    if request.sam3_diseases:
+        logger.info(f"📋 SAM3 заболевания: {len(request.sam3_diseases)} шт.")
+    
     try:
         image_base64 = request.image
         
         if not image_base64:
+            logger.error("❌ Ошибка: изображение не предоставлено")
             raise HTTPException(status_code=400, detail="Изображение не предоставлено")
+        
+        # Логируем размер изображения
+        image_size = len(image_base64)
+        logger.info(f"📷 Размер изображения (base64): {image_size:,} байт ({image_size / 1024:.2f} KB)")
         
         # Убираем префикс data:image если есть и извлекаем MIME тип
         mime_type = None
@@ -106,6 +124,7 @@ async def analyze_skin(request: AnalyzeRequest):
             image_base64 = image_base64.split(',')[1]
             if 'data:' in prefix and ';' in prefix:
                 mime_type = prefix.split(';')[0].split(':')[1]
+                logger.info(f"📷 MIME тип: {mime_type}")
         
         # Получаем настройки из запроса или используем по умолчанию
         config = request.config.dict() if request.config else DEFAULT_CONFIG.copy()
@@ -114,6 +133,12 @@ async def analyze_skin(request: AnalyzeRequest):
         temperature = config.get('temperature', 0.7)
         max_tokens = config.get('max_tokens', 1000)
         language = config.get('language', 'ru')
+        
+        logger.info(f"🤖 Vision модель: {vision_model}")
+        logger.info(f"🤖 Text модель: {text_model}")
+        logger.info(f"🌡️  Temperature: {temperature}")
+        logger.info(f"🔢 Max tokens: {max_tokens}")
+        logger.info(f"🌍 Язык: {language}")
         
         # Пробуем детекцию через доступные API
         skin_data = None
@@ -395,6 +420,21 @@ async def analyze_skin(request: AnalyzeRequest):
             pixelbin_images[0]['methods_used'] = methods_used
             analysis_method = f"heuristics ({primary_method})"
         
+        elapsed_time = time.time() - start_time
+        
+        # Логируем успешное завершение
+        logger.info("=" * 80)
+        logger.info("✅ АНАЛИЗ ЗАВЕРШЁН УСПЕШНО")
+        logger.info("=" * 80)
+        logger.info(f"⏱️  Общее время выполнения: {elapsed_time:.2f} секунд")
+        logger.info(f"📊 Метод анализа: {analysis_method}")
+        logger.info(f"🤖 Провайдер: {used_provider or 'N/A'}")
+        logger.info(f"🤖 Модель: {used_model or 'N/A'}")
+        logger.info(f"📷 Изображений получено: {len(pixelbin_images)}")
+        if warning_message:
+            logger.warning(f"⚠️  Предупреждение: {warning_message}")
+        logger.info("=" * 80)
+        
         return AnalyzeResponse(
             success=True,
             data=skin_data,
@@ -409,9 +449,18 @@ async def analyze_skin(request: AnalyzeRequest):
             warning=warning_message
         )
         
-    except HTTPException:
+    except HTTPException as e:
+        elapsed_time = time.time() - start_time
+        logger.error("=" * 80)
+        logger.error(f"❌ ОШИБКА HTTP: {e.status_code} - {e.detail}")
+        logger.error(f"⏱️  Время до ошибки: {elapsed_time:.2f} секунд")
+        logger.error("=" * 80)
         raise
     except Exception as e:
-        logger.error(f"Analysis error: {e}", exc_info=True)
+        elapsed_time = time.time() - start_time
+        logger.error("=" * 80)
+        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {e}")
+        logger.error(f"⏱️  Время до ошибки: {elapsed_time:.2f} секунд")
+        logger.error("=" * 80, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
