@@ -32,6 +32,7 @@ class AnalyzeResponse(BaseModel):
     """Схема ответа на анализ кожи"""
     success: bool
     data: Optional[Dict] = None
+    statistics: Optional[Dict] = Field(None, description="Числовые показатели (проценты) для каждого параметра кожи")
     report: Optional[str] = None
     pixelbin_images: Optional[List[Dict]] = None
     provider: Optional[str] = None

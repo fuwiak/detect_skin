@@ -21,6 +21,7 @@ from app.services.segmentation_service import generate_heuristic_analysis
 from app.services.validation_service import validate_image
 from app.services.image_analysis_fallback import analyze_image_fallback
 from app.utils.image_utils import convert_heic_to_jpeg, detect_image_format
+from app.utils.statistics import format_statistics_detailed
 from app.dependencies import HEIC_SUPPORT
 
 logger = logging.getLogger(__name__)
@@ -464,6 +465,9 @@ async def analyze_skin(request: AnalyzeRequest):
             pixelbin_images[0]['methods_used'] = methods_used
             analysis_method = f"heuristics ({primary_method})"
         
+        # Формируем статистику (числовые показатели)
+        statistics = format_statistics_detailed(skin_data, pixelbin_images)
+        
         elapsed_time = time.time() - start_time
         
         # Логируем успешное завершение
@@ -482,6 +486,7 @@ async def analyze_skin(request: AnalyzeRequest):
         return AnalyzeResponse(
             success=True,
             data=skin_data,
+            statistics=statistics,
             report=report,
             pixelbin_images=pixelbin_images,
             provider=used_provider,
