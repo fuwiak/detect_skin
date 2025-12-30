@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-def format_statistics(skin_data: Dict, pixelbin_images: Optional[List[Dict]] = None) -> Dict:
+def format_statistics(skin_data: Dict, pixelbin_images: Optional[List[Dict]] = None, requested_diseases: Optional[List[str]] = None) -> Dict:
     """
     Формирует числовые показатели (проценты) для каждого параметра кожи.
     
@@ -46,97 +46,68 @@ def format_statistics(skin_data: Dict, pixelbin_images: Optional[List[Dict]] = N
     
     # Если есть pixelbin_images, извлекаем concerns из них
     if pixelbin_images:
+        from app.utils.combine_results import extract_statistics_from_pixelbin, extract_statistics_from_sam3_results
+        
         for img in pixelbin_images:
             # Из Pixelbin response
             if img.get('type') == 'pixelbin' and 'pixelbin_data' in img:
-                pixelbin_data = img.get('pixelbin_data', {})
-                output = pixelbin_data.get('output', {})
-                skin_data_pb = output.get('skinData', {})
-                concerns = skin_data_pb.get('concerns', [])
-                
-                # Добавляем concerns в статистику
-                for concern in concerns:
-                    tech_name = concern.get('tech_name', '').lower()
-                    value = concern.get('value', 0)
-                    name = concern.get('name', '')
-                    
-                    # Маппинг названий concerns на стандартные названия
-                    concern_mapping = {
-                        'acne': 'acne',
-                        'pimples': 'acne',
-                        'pustules': 'acne',
-                        'papules': 'acne',
-                        'whiteheads': 'whiteheads',
-                        'blackheads': 'blackheads',
-                        'comedones': 'comedones',
-                        'pigmentation': 'pigmentation',
-                        'freckles': 'freckles',
-                        'wrinkles': 'wrinkles',
-                        'fine_lines': 'wrinkles',
-                        'pores': 'pores',
-                        'large_pores': 'pores',
-                        'hydration': 'hydration',
-                        'moisture': 'hydration',
-                        'dark_circles': 'dark_circles',
-                        'eye_bags': 'eye_bags',
-                        'post_acne_scars': 'post_acne_scars',
-                        'acne_scars': 'post_acne_scars',
-                        'scars': 'scars',
-                        'skin_tone': 'skin_tone',
-                        'texture': 'texture',
-                        'excess_oil': 'oiliness',
-                        'oiliness': 'oiliness',
-                        'sensitivity': 'sensitivity',
-                        'edema': 'edema',
-                    }
-                    
-                    # Ищем соответствие
-                    mapped_name = None
-                    for key, mapped in concern_mapping.items():
-                        if key in tech_name or key in name.lower():
-                            mapped_name = mapped
-                            break
-                    
-                    if mapped_name:
-                        # Обновляем статистику, если значение больше текущего
-                        current_value = statistics.get(mapped_name, 0)
-                        if value > current_value:
-                            statistics[mapped_name] = round(float(value))
-                    else:
-                        # Добавляем как есть, если нет маппинга
-                        stat_key = tech_name.replace(' ', '_').replace('-', '_')
-                        if stat_key:
-                            statistics[stat_key] = round(float(value))
+                pixelbin_stats = extract_statistics_from_pixelbin(img.get('pixelbin_data', {}))
+                for key, value in pixelbin_stats.items():
+                    current_value = statistics.get(key, 0)
+                    if value > current_value:
+                        statistics[key] = value
             
             # Из SAM3 результатов
             elif img.get('type') == 'sam3' and 'sam3_results' in img:
                 sam3_results = img.get('sam3_results', {})
-                # SAM3 возвращает маски, но не проценты напрямую
-                # Можно добавить логику для подсчета покрытия масок
-                for disease_key, masks in sam3_results.items():
-                    if masks and len(masks) > 0:
-                        # Если есть маски, это означает наличие проблемы
-                        # Можно установить базовое значение или вычислить покрытие
-                        disease_mapping = {
-                            'pimples': 'acne',
-                            'pustules': 'acne',
-                            'papules': 'acne',
-                            'acne': 'acne',
-                            'whiteheads': 'whiteheads',
-                            'blackheads': 'blackheads',
-                            'comedones': 'comedones',
-                            'pigmentation': 'pigmentation',
-                            'freckles': 'freckles',
-                            'wrinkles': 'wrinkles',
-                            'fine_lines': 'wrinkles',
-                            'pores': 'pores',
-                            'large_pores': 'pores',
-                        }
-                        
-                        mapped_name = disease_mapping.get(disease_key, disease_key)
-                        # Если есть маски, устанавливаем минимальное значение
-                        if mapped_name not in statistics or statistics[mapped_name] == 0:
-                            statistics[mapped_name] = 10  # Минимальное значение при наличии масок
+                sam3_stats = extract_statistics_from_sam3_results(sam3_results, requested_diseases)
+                for key, value in sam3_stats.items():
+                    current_value = statistics.get(key, 0)
+                    if value > current_value:
+                        statistics[key] = value
+    
+    # Добавляем запрошенные заболевания, для которых нет результатов (0%)
+    if requested_diseases:
+        disease_mapping = {
+            'pimples': 'acne',
+            'pustules': 'acne',
+            'papules': 'acne',
+            'acne': 'acne',
+            'whiteheads': 'whiteheads',
+            'blackheads': 'blackheads',
+            'comedones': 'comedones',
+            'rosacea': 'rosacea',
+            'irritation': 'irritation',
+            'pigmentation': 'pigmentation',
+            'freckles': 'freckles',
+            'wrinkles': 'wrinkles',
+            'fine_lines': 'wrinkles',
+            'skin_lesion': 'skin_lesion',
+            'scars': 'scars',
+            'acne_scars': 'post_acne_scars',
+            'post_acne_marks': 'post_acne_scars',
+            'hydration': 'hydration',
+            'moisture': 'hydration',
+            'pores': 'pores',
+            'large_pores': 'pores',
+            'eye_bags': 'eye_bags',
+            'dark_circles': 'dark_circles',
+            'texture': 'texture',
+            'skin_tone': 'skin_tone',
+            'excess_oil': 'oiliness',
+            'oiliness': 'oiliness',
+            'sensitivity': 'sensitivity',
+            'edema': 'edema',
+            'moles': 'moles',
+            'warts': 'warts',
+            'papillomas': 'papillomas',
+            'skin_tags': 'skin_tags',
+        }
+        
+        for disease in requested_diseases:
+            mapped_name = disease_mapping.get(disease, disease.replace(' ', '_').replace('-', '_'))
+            if mapped_name not in statistics:
+                statistics[mapped_name] = 0
     
     # Убеждаемся, что все основные поля присутствуют
     default_fields = ['acne', 'pigmentation', 'pores', 'wrinkles', 'skin_tone', 'texture', 'hydration', 'oiliness']
@@ -160,7 +131,7 @@ def format_statistics(skin_data: Dict, pixelbin_images: Optional[List[Dict]] = N
     return sorted_stats
 
 
-def format_statistics_detailed(skin_data: Dict, pixelbin_images: Optional[List[Dict]] = None) -> Dict:
+def format_statistics_detailed(skin_data: Dict, pixelbin_images: Optional[List[Dict]] = None, requested_diseases: Optional[List[str]] = None) -> Dict:
     """
     Формирует детальную статистику с разделением на категории.
     

@@ -22,6 +22,7 @@ from app.services.validation_service import validate_image
 from app.services.image_analysis_fallback import analyze_image_fallback
 from app.utils.image_utils import convert_heic_to_jpeg, detect_image_format
 from app.utils.statistics import format_statistics_detailed
+from app.utils.combine_results import combine_skin_data, extract_statistics_from_sam3_results, extract_statistics_from_pixelbin
 from app.dependencies import HEIC_SUPPORT
 
 logger = logging.getLogger(__name__)
@@ -465,8 +466,55 @@ async def analyze_skin(request: AnalyzeRequest):
             pixelbin_images[0]['methods_used'] = methods_used
             analysis_method = f"heuristics ({primary_method})"
         
-        # Формируем статистику (числовые показатели)
-        statistics = format_statistics_detailed(skin_data, pixelbin_images)
+        # Формируем статистику (числовые показатели) для всех запрошенных параметров
+        # Используем sam3_diseases из запроса, если указаны, иначе все доступные параметры
+        requested_diseases = request.sam3_diseases if request.sam3_diseases else None
+        
+        # Если есть pixelbin_images, извлекаем дополнительную статистику из них
+        # и комбинируем с основными данными
+        if pixelbin_images:
+            for img in pixelbin_images:
+                # Из Pixelbin извлекаем concerns
+                if img.get('type') == 'pixelbin' and 'pixelbin_data' in img:
+                    pixelbin_stats = extract_statistics_from_pixelbin(img.get('pixelbin_data', {}))
+                    # Обновляем skin_data с данными из Pixelbin
+                    for key, value in pixelbin_stats.items():
+                        # Маппим на поля skin_data
+                        field_mapping = {
+                            'acne': 'acne_score',
+                            'pigmentation': 'pigmentation_score',
+                            'pores': 'pores_size',
+                            'wrinkles': 'wrinkles_grade',
+                            'hydration': 'moisture_level',
+                            'oiliness': 'oiliness',
+                        }
+                        if key in field_mapping:
+                            field = field_mapping[key]
+                            if skin_data.get(field, 0) < value:
+                                skin_data[field] = value
+                
+                # Из SAM3 извлекаем статистику по маскам
+                elif img.get('type') == 'sam3' and 'sam3_results' in img:
+                    sam3_stats = extract_statistics_from_sam3_results(
+                        img.get('sam3_results', {}), 
+                        requested_diseases
+                    )
+                    # Обновляем skin_data с данными из SAM3
+                    for key, value in sam3_stats.items():
+                        field_mapping = {
+                            'acne': 'acne_score',
+                            'pigmentation': 'pigmentation_score',
+                            'pores': 'pores_size',
+                            'wrinkles': 'wrinkles_grade',
+                            'hydration': 'moisture_level',
+                            'oiliness': 'oiliness',
+                        }
+                        if key in field_mapping:
+                            field = field_mapping[key]
+                            if skin_data.get(field, 0) < value:
+                                skin_data[field] = value
+        
+        statistics = format_statistics_detailed(skin_data, pixelbin_images, requested_diseases)
         
         elapsed_time = time.time() - start_time
         
