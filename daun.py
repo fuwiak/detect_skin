@@ -131,10 +131,10 @@ class PixelBinService:
         if job_id.startswith("http"):
             url = job_id
         else:
-        url = f"{BASE_URL}/{job_id}"
-        
-        print(f"Checking status for job_id: {job_id}")
-        print(f"URL: {url}")
+            url = f"{BASE_URL}/{job_id}"
+            
+            print(f"Checking status for job_id: {job_id}")
+            print(f"URL: {url}")
         
         try:
             response = requests.get(url, headers=HEADERS, timeout=30)

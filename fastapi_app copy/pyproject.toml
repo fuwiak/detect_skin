@@ -1,0 +1,18 @@
+[project]
+name = "skin-analyzer-api"
+version = "1.0.0"
+description = "FastAPI application for skin analysis"
+requires-python = ">=3.8"
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.sphinx]
+source-dir = "docs"
+build-dir = "docs/_build"
+
+
+
+
+

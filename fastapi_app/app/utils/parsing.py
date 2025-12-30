@@ -106,3 +106,9 @@ def convert_bbox_to_position(bbox: List[float], image_width: int = 1000, image_h
 
 
 
+
+
+
+
+
+
