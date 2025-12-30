@@ -28,12 +28,9 @@ ENV/
 env/
 .conda/
 
-# Environment variables
-.env
-.env.local
-.env.*.local
-.env_test
-*.env_test
+# Environment variables - все файлы, начинающиеся с .env
+.env*
+!.env.example
 
 # IDE
 .vscode/
