@@ -28,8 +28,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CONFIGURATION ---
-ACCESS_TOKEN = "c5e15df7-73a6-4796-ac07-b3b6a6ccfb97"
+# --- CONFIGURATION из переменных окружения ---
+import os
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения из .env файла (если есть)
+load_dotenv()
+
+ACCESS_TOKEN = os.getenv("PIXELBIN_ACCESS_TOKEN")
+if not ACCESS_TOKEN:
+    raise ValueError("PIXELBIN_ACCESS_TOKEN не найден в переменных окружения. Установите его в .env файле или Railway variables.")
+
 BASE_URL = "https://api.pixelbin.io/service/platform/transformation/v1.0/predictions"
 
 # Convert access token to bearer token using base64 encoding

@@ -6,6 +6,7 @@
 Результаты сохраняются в папку output/ с именем, связанным с входным файлом
 """
 
+import os
 import base64
 import requests
 import json
@@ -13,10 +14,18 @@ from pathlib import Path
 import time
 import argparse
 import sys
-import os
+from dotenv import load_dotenv
 
-# --- CONFIGURATION (из dupa.py строки 32-40) ---
-ACCESS_TOKEN = "c5e15df7-73a6-4796-ac07-b3b6a6ccfb97"
+# Загружаем переменные окружения из .env файла (если есть)
+load_dotenv()
+
+# --- CONFIGURATION из переменных окружения ---
+ACCESS_TOKEN = os.getenv("PIXELBIN_ACCESS_TOKEN")
+if not ACCESS_TOKEN:
+    print("❌ ОШИБКА: PIXELBIN_ACCESS_TOKEN не найден в переменных окружения.")
+    print("   Установите его в .env файле или Railway variables.")
+    sys.exit(1)
+
 BASE_URL = "https://api.pixelbin.io/service/platform/transformation/v1.0/predictions"
 
 # Convert access token to bearer token using base64 encoding

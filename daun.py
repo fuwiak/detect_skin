@@ -46,8 +46,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CONFIGURATION ---
-BEARER_TOKEN = "YzVlMTVkZjctNzNhNi00Nzk2LWFjMDctYjNiNmE2Y2NmYjk3"
+# --- CONFIGURATION из переменных окружения ---
+import os
+import base64
+from dotenv import load_dotenv
+
+# Загружаем переменные окружения из .env файла (если есть)
+load_dotenv()
+
+ACCESS_TOKEN = os.getenv("PIXELBIN_ACCESS_TOKEN")
+if not ACCESS_TOKEN:
+    raise ValueError("PIXELBIN_ACCESS_TOKEN не найден в переменных окружения. Установите его в .env файле или Railway variables.")
+
+# Convert access token to bearer token using base64 encoding
+BEARER_TOKEN = base64.b64encode(ACCESS_TOKEN.encode('utf-8')).decode('utf-8')
+
 ENDPOINT = "https://api.pixelbin.io/service/platform/transformation/v1.0/predictions/skinAnalysisInt/generate"
 BASE_URL = "https://api.pixelbin.io/service/platform/transformation/v1.0/predictions"
 HEADERS = {

@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """
 Простой тест для проверки работоспособности Pixelbin API endpoint
-Использует те же настройки, что и dupa.py
+Использует переменные окружения из .env файла или Railway variables
 """
 
+import os
 import base64
 import requests
 import json
+from dotenv import load_dotenv
 
-# --- CONFIGURATION (из dupa.py) ---
-ACCESS_TOKEN = "c5e15df7-73a6-4796-ac07-b3b6a6ccfb97"
+# Загружаем переменные окружения из .env файла (если есть)
+load_dotenv()
+
+# --- CONFIGURATION из переменных окружения ---
+ACCESS_TOKEN = os.getenv("PIXELBIN_ACCESS_TOKEN")
+if not ACCESS_TOKEN:
+    raise ValueError("PIXELBIN_ACCESS_TOKEN не найден в переменных окружения. Установите его в .env файле или Railway variables.")
+
 BASE_URL = "https://api.pixelbin.io/service/platform/transformation/v1.0/predictions"
 
 # Convert access token to bearer token using base64 encoding
@@ -86,6 +94,12 @@ if __name__ == "__main__":
     else:
         print("❌ ТЕСТ НЕ ПРОЙДЕН")
     print("=" * 60)
+
+
+
+
+
+
 
 
 
