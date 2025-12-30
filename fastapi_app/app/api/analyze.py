@@ -255,43 +255,77 @@ async def analyze_skin(request: AnalyzeRequest):
         
         if mode == "sam3":
             # SAM3 режим
-            original_image_bytes = bytes(image_bytes)
+            logger.info("=" * 80)
+            logger.info("🎯 РЕЖИМ SAM3")
+            logger.info("=" * 80)
             
-            statuses = []
-            statuses.append("🔧 ПРЕДОБРАБОТКА")
-            preprocessed = PixelBinService.preprocess_for_pixelbin(image_bytes)
-            if preprocessed:
-                image_bytes = preprocessed
-                statuses.append("✅ Предобработка выполнена")
-            
-            selected_diseases = {
-                k: v for k, v in SAM3_DISEASES_DEFAULT.items()
-                if (not request.sam3_diseases or k in request.sam3_diseases)
-            }
-            if not selected_diseases:
-                selected_diseases = SAM3_DISEASES_DEFAULT
-            
-            sam3_result = run_sam3_pipeline(
-                image_bytes,
-                selected_diseases,
-                timeout=request.sam3_timeout or 5,
-                use_llm_preanalysis=request.sam3_use_llm_preanalysis or True,
-                max_mask_coverage_percent=request.sam3_max_coverage_percent or 25.0
-            )
-            combined_statuses = statuses + sam3_result.get('statuses', [])
-            
-            overlay_image = None
-            mask_results = sam3_result.get('mask_results', {})
-            if mask_results:
-                overlay_image = create_sam3_overlay_image(original_image_bytes, mask_results)
-            
-            pixelbin_images = [{
-                'type': 'sam3',
-                'sam3_results': mask_results,
-                'statuses': combined_statuses,
-                'timeout': request.sam3_timeout or 5,
-                'overlay_image': overlay_image
-            }]
+            try:
+                original_image_bytes = bytes(image_bytes)
+                
+                statuses = []
+                statuses.append("🔧 ПРЕДОБРАБОТКА")
+                preprocessed = PixelBinService.preprocess_for_pixelbin(image_bytes)
+                if preprocessed:
+                    image_bytes = preprocessed
+                    statuses.append("✅ Предобработка выполнена")
+                
+                selected_diseases = {
+                    k: v for k, v in SAM3_DISEASES_DEFAULT.items()
+                    if (not request.sam3_diseases or k in request.sam3_diseases)
+                }
+                if not selected_diseases:
+                    selected_diseases = SAM3_DISEASES_DEFAULT
+                
+                logger.info(f"📋 Заболеваний для анализа: {len(selected_diseases)}")
+                logger.info(f"⏱️  Timeout: {request.sam3_timeout or 5} секунд")
+                logger.info(f"🧠 LLM pre-analysis: {request.sam3_use_llm_preanalysis or True}")
+                
+                sam3_result = run_sam3_pipeline(
+                    image_bytes,
+                    selected_diseases,
+                    timeout=request.sam3_timeout or 5,
+                    use_llm_preanalysis=request.sam3_use_llm_preanalysis or True,
+                    max_mask_coverage_percent=request.sam3_max_coverage_percent or 25.0
+                )
+                combined_statuses = statuses + sam3_result.get('statuses', [])
+                
+                overlay_image = None
+                mask_results = sam3_result.get('mask_results', {})
+                if mask_results:
+                    logger.info(f"✅ SAM3 нашел {len(mask_results)} типов заболеваний")
+                    try:
+                        overlay_image = create_sam3_overlay_image(original_image_bytes, mask_results)
+                        logger.info("✅ Overlay изображение создано")
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка при создании overlay: {e}", exc_info=True)
+                        overlay_image = None
+                
+                pixelbin_images = [{
+                    'type': 'sam3',
+                    'sam3_results': mask_results,
+                    'statuses': combined_statuses,
+                    'timeout': request.sam3_timeout or 5,
+                    'overlay_image': overlay_image
+                }]
+                
+                logger.info("=" * 80)
+                logger.info("✅ SAM3 РЕЖИМ ЗАВЕРШЁН")
+                logger.info("=" * 80)
+                
+            except Exception as e:
+                logger.error("=" * 80)
+                logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА В SAM3 РЕЖИМЕ: {e}")
+                logger.error("=" * 80, exc_info=True)
+                # Возвращаем пустой результат вместо падения
+                pixelbin_images = [{
+                    'type': 'sam3',
+                    'sam3_results': {},
+                    'statuses': statuses + [f"❌ Ошибка SAM3: {str(e)}"],
+                    'timeout': request.sam3_timeout or 5,
+                    'overlay_image': None,
+                    'error': str(e)
+                }]
+                warning_message = f"SAM3 режим завершился с ошибкой: {str(e)}"
         else:
             # Pixelbin режим - полная логика с вариантами
             try:

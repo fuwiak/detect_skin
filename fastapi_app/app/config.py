@@ -56,7 +56,12 @@ if not settings.openrouter_api_key:
 if not settings.pixelbin_access_token:
     settings.pixelbin_access_token = os.getenv("PIXELBIN_ACCESS_TOKEN")
 if not settings.fal_key:
-    settings.fal_key = os.getenv("FAL_KEY")
+    fal_key_from_env = os.getenv("FAL_KEY")
+    if fal_key_from_env:
+        settings.fal_key = fal_key_from_env
+        logger.info("✅ FAL_KEY найден в переменных окружения системы")
+    else:
+        logger.warning("⚠️ FAL_KEY не найден ни в settings, ни в os.environ")
 if not settings.hf_token:
     settings.hf_token = os.getenv("HF_TOKEN")
 

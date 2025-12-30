@@ -140,9 +140,24 @@ def sam3_segment(image_path: str, disease_key: str, timeout: int, statuses: List
     Вызов SAM3 через fal_client с таймаутом и улучшенными промптами.
     Использует RAG (базу знаний) и опционально LLM-enhanced промпты.
     """
-    if not FAL_AVAILABLE or not settings.fal_key:
-        statuses.append("❌ SAM3 недоступен (нет fal_client или FAL_KEY)")
+    if not FAL_AVAILABLE:
+        statuses.append("❌ SAM3 недоступен (fal_client не установлен)")
+        logger.warning("SAM3: fal_client не установлен")
         return None
+    
+    if not settings.fal_key:
+        statuses.append("❌ SAM3 недоступен (FAL_KEY не найден)")
+        logger.warning("SAM3: FAL_KEY не найден в settings")
+        # Проверяем напрямую в os.environ
+        import os
+        fal_key_env = os.getenv("FAL_KEY")
+        if fal_key_env:
+            logger.info("✅ FAL_KEY найден в os.environ, обновляем settings")
+            settings.fal_key = fal_key_env
+            os.environ['FAL_KEY'] = fal_key_env
+        else:
+            logger.error("❌ FAL_KEY не найден ни в settings, ни в os.environ")
+            return None
     try:
         # Приоритет: LLM-enhanced промпт > RAG-enhanced > базовый
         if llm_enhanced_prompts and disease_key in llm_enhanced_prompts:
