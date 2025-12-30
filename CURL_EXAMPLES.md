@@ -41,13 +41,27 @@ python3 generate_curl.py img/18.png https://detectskin-production.up.railway.app
 python3 generate_curl.py img/18.png https://detectskin-production.up.railway.app sam3
 ```
 
+## Быстрый тест для macOS
+
+```bash
+# Используйте готовый скрипт (правильный синтаксис для macOS)
+./test_quick.sh img/18.png
+```
+
 ## Ручной способ (для локального тестирования)
 
 ### Pixelbin режим:
 
+**Для macOS:**
 ```bash
-# 1. Конвертируем изображение в base64
-IMAGE_BASE64=$(base64 -i img/18.png | tr -d '\n')
+# 1. Конвертируем изображение в base64 (macOS синтаксис)
+IMAGE_BASE64=$(base64 img/18.png | tr -d '\n')
+```
+
+**Для Linux:**
+```bash
+# 1. Конвертируем изображение в base64 (Linux синтаксис)
+IMAGE_BASE64=$(base64 -w0 img/18.png)
 
 # 2. Формируем JSON
 cat > /tmp/payload.json <<EOF
@@ -70,9 +84,16 @@ curl -X POST "http://localhost:8000/api/analyze" \
 
 ### SAM3 режим:
 
+**Для macOS:**
 ```bash
-# 1. Конвертируем изображение в base64
-IMAGE_BASE64=$(base64 -i img/18.png | tr -d '\n')
+# 1. Конвертируем изображение в base64 (macOS синтаксис)
+IMAGE_BASE64=$(base64 img/18.png | tr -d '\n')
+```
+
+**Для Linux:**
+```bash
+# 1. Конвертируем изображение в base64 (Linux синтаксис)
+IMAGE_BASE64=$(base64 -w0 img/18.png)
 
 # 2. Формируем JSON
 cat > /tmp/payload.json <<EOF
