@@ -241,9 +241,23 @@ def run_sam3_pipeline(image_bytes: bytes, diseases: Dict[str, str], timeout: int
     statuses = []
     mask_results = {}
 
-    if not FAL_AVAILABLE or not settings.fal_key:
-        statuses.append("❌ SAM3 недоступен (нет fal_client или FAL_KEY)")
+    if not FAL_AVAILABLE:
+        statuses.append("❌ SAM3 недоступен (fal_client не установлен)")
+        logger.warning("SAM3: fal_client не установлен. Установите: pip install fal-client")
         return {'statuses': statuses, 'mask_results': {}}
+    
+    if not settings.fal_key:
+        statuses.append("❌ SAM3 недоступен (FAL_KEY не найден в переменных окружения)")
+        logger.warning("SAM3: FAL_KEY не найден. Установите переменную окружения FAL_KEY в Railway или .env")
+        return {'statuses': statuses, 'mask_results': {}}
+    
+    # Проверяем, что FAL_KEY установлен в окружении для fal_client
+    import os
+    if 'FAL_KEY' not in os.environ and settings.fal_key:
+        os.environ['FAL_KEY'] = settings.fal_key
+        logger.info("✅ FAL_KEY установлен в окружении для fal_client")
+    
+    logger.info("✅ SAM3 готов к работе (fal_client доступен, FAL_KEY установлен)")
 
     # LLM pre-analysis для генерации улучшенных промптов (RAG + LLM)
     llm_enhanced_prompts = None

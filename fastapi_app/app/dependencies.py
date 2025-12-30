@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 try:
     import fal_client
     FAL_AVAILABLE = True
+    logger.info("fal_client установлен")
 except ImportError:
     fal_client = None
     FAL_AVAILABLE = False
@@ -63,6 +64,19 @@ except ImportError as e:
 
 # Импортируем настройки
 from app.config import settings
+
+# Инициализируем fal_client с ключом, если доступен
+if FAL_AVAILABLE and settings.fal_key:
+    try:
+        # fal_client автоматически читает FAL_KEY из os.environ
+        # Но убеждаемся, что ключ установлен
+        if 'FAL_KEY' not in os.environ and settings.fal_key:
+            os.environ['FAL_KEY'] = settings.fal_key
+        logger.info("✅ fal_client готов к работе (FAL_KEY установлен)")
+    except Exception as e:
+        logger.warning(f"⚠️ Ошибка при инициализации fal_client: {e}")
+elif FAL_AVAILABLE and not settings.fal_key:
+    logger.warning("⚠️ fal_client установлен, но FAL_KEY не найден. SAM3 будет недоступен.")
 
 # Экспортируем доступность модулей и настройки
 __all__ = [
