@@ -53,7 +53,7 @@ def generate_curl_command(image_path: str, railway_url: str = "https://detectski
     }
     
     endpoint = f"{railway_url}/api/analyze"
-    timeout = 180 if mode == "sam3" else 120
+    timeout = 60 if mode == "sam3" else 60  # Быстрое тестирование
     
     # Сохраняем payload в файл
     payload_file = "/tmp/analyze_payload.json"

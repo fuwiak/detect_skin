@@ -52,7 +52,7 @@ PAYLOAD=$(cat <<EOF
   "config": {
     "language": "ru"
   },
-  "sam3_timeout": 15,
+  "sam3_timeout": 5,
   "sam3_diseases": [
     "pimples", "pustules", "comedones", "rosacea", "irritation",
     "pigmentation", "freckles", "wrinkles", "fine lines",
@@ -72,14 +72,14 @@ EOF
 TMP_FILE=$(mktemp)
 echo "$PAYLOAD" > "$TMP_FILE"
 
-echo "🚀 Отправка запроса (timeout: 180 секунд)..."
+echo "🚀 Отправка запроса (timeout: 60 секунд)..."
 echo ""
 
 # Выполняем curl запрос
 curl -X POST "$ENDPOINT" \
   -H "Content-Type: application/json" \
   -d @"$TMP_FILE" \
-  --max-time 180 \
+  --max-time 60 \
   --connect-timeout 10 \
   -w "\n\n⏱️  Время выполнения: %{time_total}s\n📊 HTTP Status: %{http_code}\n" \
   -s | python3 -m json.tool 2>/dev/null || cat

@@ -134,7 +134,7 @@ def test_analyze_endpoint_sam3(image_path: str = None):
         "config": {
             "language": "ru"
         },
-        "sam3_timeout": 15,
+        "sam3_timeout": 5,  # Быстрое тестирование
         "sam3_diseases": [
             "pimples", "pustules", "comedones", "rosacea", "irritation",
             "pigmentation", "freckles", "wrinkles", "fine lines",
@@ -154,7 +154,7 @@ def test_analyze_endpoint_sam3(image_path: str = None):
     print(f"   - LLM pre-analysis: {payload['sam3_use_llm_preanalysis']}")
     print(f"   - Max coverage: {payload['sam3_max_coverage_percent']}%")
     
-    return _test_analyze_request(payload, "sam3", 180)  # Больше таймаут для SAM3
+    return _test_analyze_request(payload, "sam3", 60)  # Быстрое тестирование
 
 def _test_analyze_request(payload: dict, mode: str, timeout: int):
     """Внутренняя функция для выполнения запроса к /api/analyze"""

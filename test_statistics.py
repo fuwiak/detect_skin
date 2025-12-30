@@ -56,7 +56,7 @@ def test_statistics(image_path: str, mode: str = "pixelbin"):
         "config": {
             "language": "ru"
         },
-        "sam3_timeout": 15,
+        "sam3_timeout": 5,  # Быстрое тестирование
         "sam3_diseases": all_diseases,
         "sam3_use_llm_preanalysis": True,
         "sam3_max_coverage_percent": 25
@@ -67,7 +67,7 @@ def test_statistics(image_path: str, mode: str = "pixelbin"):
     print(f"🌐 URL: {url}")
     print(f"🎯 Режим: {mode}")
     print(f"📋 Параметров в запросе: {len(all_diseases)}")
-    print(f"⏱️  Timeout: 180 секунд\n")
+    print(f"⏱️  Timeout: 60 секунд\n")
     
     try:
         start_time = time.time()
@@ -75,7 +75,7 @@ def test_statistics(image_path: str, mode: str = "pixelbin"):
             url,
             json=payload,
             headers={"Content-Type": "application/json"},
-            timeout=180
+            timeout=60
         )
         elapsed_time = time.time() - start_time
         
