@@ -19,6 +19,7 @@ from app.services.pixelbin_service import PixelBinService, extract_images_from_p
 from app.services.sam3_service import run_sam3_pipeline, create_sam3_overlay_image
 from app.services.segmentation_service import generate_heuristic_analysis
 from app.services.validation_service import validate_image
+from app.services.image_analysis_fallback import analyze_image_fallback
 from app.utils.image_utils import convert_heic_to_jpeg, detect_image_format
 from app.dependencies import HEIC_SUPPORT
 
@@ -179,22 +180,31 @@ async def analyze_skin(request: AnalyzeRequest):
         else:
             logger.warning("⚠️ OpenRouter API ключ не найден. Проверьте переменную окружения OPENROUTER_API_KEY в Railway.")
         
-        if not skin_data:
-            error_detail = "Все API недоступны. "
-            if not settings.openrouter_api_key:
-                error_detail += "OPENROUTER_API_KEY не найден в переменных окружения. "
-            error_detail += "Проверьте переменные окружения в Railway Dashboard → Variables и интернет-соединение."
-            logger.error("=" * 80)
-            logger.error("❌ ОШИБКА: Все API недоступны!")
-            logger.error(f"   OpenRouter API Key: {'✅' if settings.openrouter_api_key else '❌ НЕ НАЙДЕН'}")
-            logger.error("=" * 80)
-            raise HTTPException(
-                status_code=503,
-                detail=error_detail
-            )
-        
-        # Декодируем base64 изображение в bytes
+        # Декодируем base64 изображение в bytes (нужно для fallback анализа)
         image_bytes = base64.b64decode(image_base64)
+        
+        # Если OpenRouter не вернул данные или вернул только нули, используем fallback
+        if not skin_data:
+            logger.warning("⚠️ OpenRouter не вернул данные, используем fallback анализ")
+            skin_data = analyze_image_fallback(image_bytes)
+            used_provider = "fallback"
+            used_model = "image_analysis"
+        else:
+            # Проверяем, что данные не все нули
+            has_valid_data = any(
+                skin_data.get(key, 0) != 0 
+                for key in ['acne_score', 'pigmentation_score', 'pores_size', 'wrinkles_grade', 
+                           'skin_tone', 'texture_score', 'moisture_level', 'oiliness']
+            )
+            if not has_valid_data:
+                logger.warning("⚠️ OpenRouter вернул только нули, используем fallback анализ")
+                fallback_data = analyze_image_fallback(image_bytes)
+                # Объединяем данные (fallback имеет приоритет для нулевых значений)
+                for key in fallback_data:
+                    if skin_data.get(key, 0) == 0 and fallback_data[key] != 0:
+                        skin_data[key] = fallback_data[key]
+                if used_provider == "openrouter":
+                    used_provider = "openrouter+fallback"
         
         # Определяем MIME type, если не передан
         if not mime_type:

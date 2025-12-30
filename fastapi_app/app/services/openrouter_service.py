@@ -127,15 +127,42 @@ def analyze_image_with_openrouter(image_base64: str, model: str, temperature: fl
         result = response.json()
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
         
+        logger.info(f"📥 Получен ответ от OpenRouter (длина: {len(content)} символов)")
+        logger.debug(f"📄 Первые 500 символов ответа: {content[:500]}")
+        
         try:
             json_start = content.find("{")
             json_end = content.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
                 skin_data = json.loads(content[json_start:json_end])
+                logger.info("✅ Успешно распарсен JSON из ответа")
             else:
+                logger.warning("⚠️ JSON не найден в ответе, пытаемся парсить текст")
                 skin_data = parse_skin_analysis_from_text(content)
-        except:
+        except json.JSONDecodeError as e:
+            logger.warning(f"⚠️ Ошибка парсинга JSON: {e}, пытаемся парсить текст")
             skin_data = parse_skin_analysis_from_text(content)
+        except Exception as e:
+            logger.error(f"❌ Ошибка при обработке ответа: {e}")
+            skin_data = parse_skin_analysis_from_text(content)
+        
+        # Проверяем, что данные не пустые
+        if skin_data:
+            # Проверяем, что есть хотя бы одно ненулевое значение
+            has_data = any(
+                skin_data.get(key, 0) != 0 
+                for key in ['acne_score', 'pigmentation_score', 'pores_size', 'wrinkles_grade', 
+                           'skin_tone', 'texture_score', 'moisture_level', 'oiliness']
+            )
+            if not has_data:
+                logger.warning("⚠️ OpenRouter вернул данные, но все значения равны 0. Возможно, модель не распознала изображение.")
+                logger.debug(f"📊 Полученные данные: {skin_data}")
+            else:
+                logger.info(f"✅ Получены валидные данные от OpenRouter")
+                # Логируем некоторые значения
+                logger.info(f"   Acne: {skin_data.get('acne_score', 0):.1f}")
+                logger.info(f"   Pigmentation: {skin_data.get('pigmentation_score', 0):.1f}")
+                logger.info(f"   Pores: {skin_data.get('pores_size', 0):.1f}")
         
         # Сохраняем bounding boxes, если они есть
         if "bounding_boxes" in skin_data:
